@@ -112,7 +112,7 @@
       border: 1px solid rgba(90,180,240,.35); border-radius: 14px; padding: 24px 28px; text-align: center;
     }
     .account-bank { font-size: .82rem; color: var(--sky); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 8px; }
-    .account-number { font-family: 'Paperlogy', sans-serif; font-size: clamp(1.6rem, 5vw, 2.2rem); font-weight: 700; letter-spacing: .04em; color: #fff; margin-bottom: 10px; }
+    .account-number { font-family: 'Paperlogy', sans-serif; font-size: clamp(1.2rem, 4vw, 1.8rem); font-weight: 700; letter-spacing: .04em; color: #fff; margin-bottom: 10px; }
     .account-name { font-size: .88rem; color: rgba(255,255,255,.6); }
 
     .copy-btn {
@@ -160,6 +160,21 @@
     }
     .call-btn:hover { background: var(--sky); color: var(--navy); transform: translateY(-2px); }
 
+    .sns-list { display: flex; flex-direction: column; gap: 12px; }
+    .sns-item {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 18px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(90,180,240,.15);
+      border-radius: 12px; text-decoration: none;
+      color: rgba(255,255,255,.85); font-size: .95rem;
+      transition: background .2s, border-color .2s, transform .15s;
+    }
+    .sns-item:hover { background: rgba(90,180,240,.1); border-color: rgba(90,180,240,.4); transform: translateX(4px); }
+    .sns-icon { font-size: 1.2rem; }
+    .sns-label { flex: 1; font-weight: 700; }
+    .sns-arrow { color: var(--sky); font-size: 1rem; }
+
     .toast {
       position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(80px);
       background: var(--sky); color: var(--navy);
@@ -167,6 +182,7 @@
       padding: 12px 28px; border-radius: 100px;
       opacity: 0; transition: opacity .3s, transform .3s;
       pointer-events: none; z-index: 999;
+      white-space: nowrap;
     }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
@@ -197,7 +213,8 @@
     </h1>
     <p class="hero-sub">
       <span class="line">의정활동에 힘을 보태주셔서 감사합니다.</span>
-      <span class="line">시민이 체감하는 변화를 만들기 위해 더 성실히 뛰겠습니다.</span>
+      <span class="line">시민이 체감하는 변화를 만들기 위해</span>
+      <span class="line">더 성실히 뛰겠습니다.</span>
     </p>
   </header>
 
@@ -220,9 +237,9 @@
       <h2 class="card-title">후원 안내사항</h2>
     </div>
     <ul class="info-list">
-      <li><span class="num">1</span><span><strong style="color:#fff">개인 명의</strong>로만 후원이 가능합니다. 법인·단체 명의의 후원은 받지 않습니다.</span></li>
-      <li><span class="num">2</span><span>연간 <strong style="color:#fff">100만원</strong>까지 후원하실 수 있습니다.</span></li>
-      <li><span class="num">3</span><span>광역의회의원 후원은 1인당 연간 <strong style="color:#fff">200만원</strong>까지 가능합니다.</span></li>
+      <li><span class="num">1</span><span><strong style="color:#fff">개인 명의</strong>로만 후원이 가능합니다.</span></li>
+      <li><span class="num">2</span><span>연간 <strong style="color:#fff">100만원</strong>까지 후원 가능합니다.</span></li>
+      <li><span class="num">3</span><span>광역의회의원 후원은<br>1인당 연간 <strong style="color:#fff">200만원</strong>까지 가능합니다.</span></li>
     </ul>
   </div>
 
@@ -252,10 +269,35 @@
     </div>
     <div class="contact-box">
       <div class="contact-info">
-        후원 완료 후 입금 확인 및 후원금 영수증 발행을 위해<br>
+        후원 완료 후 후원금 영수증 발행을 위해<br>
         아래 번호로 꼭 연락 부탁 드립니다.
       </div>
       <a class="call-btn" href="tel:01076179231">📱 010-7617-9231</a>
+    </div>
+  </div>
+
+  <!-- SNS -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon">🔗</div>
+      <h2 class="card-title">장민수 의원 SNS</h2>
+    </div>
+    <div class="sns-list">
+      <a class="sns-item" href="https://www.facebook.com/anyangcitizen" target="_blank">
+        <span class="sns-icon">📘</span>
+        <span class="sns-label">페이스북</span>
+        <span class="sns-arrow">→</span>
+      </a>
+      <a class="sns-item" href="https://www.instagram.com/anyang_citizen" target="_blank">
+        <span class="sns-icon">📸</span>
+        <span class="sns-label">인스타그램</span>
+        <span class="sns-arrow">→</span>
+      </a>
+      <a class="sns-item" href="https://blog.naver.com/anyang_citizen" target="_blank">
+        <span class="sns-icon">📝</span>
+        <span class="sns-label">블로그</span>
+        <span class="sns-arrow">→</span>
+      </a>
     </div>
   </div>
 </div>
