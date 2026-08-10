@@ -69,18 +69,18 @@
       margin-top: 22px;
     }
     .hero-badge {
-      display: inline-flex; align-items: center; gap: 8px;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; max-width: 440px;
       background: rgba(90,180,240,.18); border: 1px solid rgba(90,180,240,.4);
-      border-radius: 100px; padding: 6px 18px;
-      font-size: 13px; letter-spacing: .06em; color: var(--sky);
+      border-radius: 18px; padding: 12px 22px;
+      font-size: 14px; font-weight: 700; letter-spacing: .02em; color: var(--sky);
     }
     .hero-badge-district {
       flex-direction: column; gap: 5px;
-      border-radius: 18px; padding: 11px 22px; max-width: 100%;
     }
     .hero-badge-district .badge-main { font-weight: 700; letter-spacing: .02em; }
     .hero-badge-district .badge-sub {
-      font-size: 12px; letter-spacing: .01em; line-height: 1.5;
+      font-size: 12px; font-weight: 400; letter-spacing: .01em; line-height: 1.5;
       color: rgba(168,216,248,.75); word-break: keep-all;
     }
     .hero-badge .dot { width: 7px; height: 7px; background: var(--sky); border-radius: 50%; animation: blink 1.5s ease-in-out infinite; }
@@ -224,7 +224,7 @@
       .sns-list { gap: 8px; }
       .sns-item { padding: 18px 4px; min-height: 104px; gap: 8px; }
       .sns-icon { width: 30px; height: 30px; }
-      .hero-badge-district { padding: 10px 16px; }
+      .hero-badge { padding: 11px 16px; font-size: 13px; }
       .hero-badge-district .badge-sub { font-size: 11px; }
     }
   </style>
@@ -246,7 +246,7 @@
     <div class="hero-badges">
       <span class="hero-badge">💙 더불어민주당 경기도의원</span>
       <span class="hero-badge hero-badge-district">
-        <span class="badge-main">💫 안양시 제5선거구</span>
+        <span class="badge-main">💫 안양시제5선거구</span>
         <span class="badge-sub">평촌동 · 평안동 · 귀인동 · 범계동 · 갈산동</span>
       </span>
     </div>
