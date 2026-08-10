@@ -74,6 +74,15 @@
       border-radius: 100px; padding: 6px 18px;
       font-size: 13px; letter-spacing: .06em; color: var(--sky);
     }
+    .hero-badge-district {
+      flex-direction: column; gap: 5px;
+      border-radius: 18px; padding: 11px 22px; max-width: 100%;
+    }
+    .hero-badge-district .badge-main { font-weight: 700; letter-spacing: .02em; }
+    .hero-badge-district .badge-sub {
+      font-size: 12px; letter-spacing: .01em; line-height: 1.5;
+      color: rgba(168,216,248,.75); word-break: keep-all;
+    }
     .hero-badge .dot { width: 7px; height: 7px; background: var(--sky); border-radius: 50%; animation: blink 1.5s ease-in-out infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 
@@ -182,10 +191,10 @@
     }
     .call-btn:hover { background: var(--sky); color: var(--navy); transform: translateY(-2px); }
 
-    .sns-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .sns-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: stretch; }
     .sns-item {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 10px; padding: 20px 12px;
+      gap: 10px; padding: 20px 8px; min-height: 116px;
       background: rgba(255,255,255,.04);
       border: 1px solid rgba(90,180,240,.15);
       border-radius: 16px; text-decoration: none;
@@ -194,7 +203,7 @@
     }
     .sns-item:hover { background: rgba(90,180,240,.1); border-color: rgba(90,180,240,.4); transform: translateY(-4px); }
     .sns-icon { width: 34px; height: 34px; display: block; }
-    .sns-label { font-weight: 700; font-size: .88rem; }
+    .sns-label { font-weight: 700; font-size: clamp(.75rem, 3vw, .88rem); white-space: nowrap; }
     .sns-arrow { display: none; }
 
     .toast {
@@ -209,9 +218,14 @@
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     @media (max-width: 500px) {
-      .card { padding: 28px 22px; }
+      .card { padding: 28px 18px; }
       .tax-grid { grid-template-columns: 1fr; }
       .contact-box { flex-direction: column; align-items: flex-start; }
+      .sns-list { gap: 8px; }
+      .sns-item { padding: 18px 4px; min-height: 104px; gap: 8px; }
+      .sns-icon { width: 30px; height: 30px; }
+      .hero-badge-district { padding: 10px 16px; }
+      .hero-badge-district .badge-sub { font-size: 11px; }
     }
   </style>
 </head>
@@ -231,7 +245,10 @@
     </h1>
     <div class="hero-badges">
       <span class="hero-badge">💙 더불어민주당 경기도의원</span>
-      <span class="hero-badge">💫 안양시제5선거구 (평촌동, 평안동, 귀인동, 범계동, 갈산동)</span>
+      <span class="hero-badge hero-badge-district">
+        <span class="badge-main">💫 안양시 제5선거구</span>
+        <span class="badge-sub">평촌동 · 평안동 · 귀인동 · 범계동 · 갈산동</span>
+      </span>
     </div>
     <p class="hero-sub">
       <span class="line">시민의 목소리를 세심히 살피고,</span>
@@ -241,8 +258,7 @@
   </header>
 
   <p class="cta-text">
-    그 약속을 지켜낼 수 있도록,<br>
-    <span class="accent">평촌의 내일을 만들어갈 장민수</span>에게 힘을 보태주세요.
+    <span class="accent">평촌의 내일을 만들어갈 장민수</span>에게<br>힘을 보태주세요.
   </p>
 
   <div class="card">
@@ -336,7 +352,7 @@
                 font-family="Arial, Helvetica, sans-serif" font-size="8.2" font-weight="bold"
                 letter-spacing="-.3">blog</text>
         </svg>
-        <span class="sns-label">네이버 블로그</span>
+        <span class="sns-label">Blog</span>
       </a>
     </div>
   </div>
