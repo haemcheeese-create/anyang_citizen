@@ -64,10 +64,14 @@
     .page { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 0 24px 80px; }
 
     .hero { text-align: center; padding: 80px 0 56px; animation: fadeUp .9s ease both; }
+    .hero-badges {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      margin-bottom: 28px;
+    }
     .hero-badge {
       display: inline-flex; align-items: center; gap: 8px;
       background: rgba(90,180,240,.18); border: 1px solid rgba(90,180,240,.4);
-      border-radius: 100px; padding: 6px 18px; margin-bottom: 28px;
+      border-radius: 100px; padding: 6px 18px;
       font-size: 13px; letter-spacing: .06em; color: var(--sky);
     }
     .hero-badge .dot { width: 7px; height: 7px; background: var(--sky); border-radius: 50%; animation: blink 1.5s ease-in-out infinite; }
@@ -84,6 +88,12 @@
     }
     .hero-sub { font-size: 1rem; color: rgba(255,255,255,.65); margin-top: 18px; line-height: 1.85; letter-spacing: .02em; }
     .hero-sub .line { display: block; }
+
+    .cta-text {
+      text-align: center; font-family: 'Paperlogy', sans-serif; font-weight: 700;
+      font-size: 1.05rem; color: #fff; letter-spacing: -.01em;
+      margin: 8px 0 20px; animation: fadeUp .7s ease both;
+    }
 
     .card {
       background: rgba(255,255,255,.04); border: 1px solid rgba(90,180,240,.2);
@@ -204,19 +214,21 @@
 
 <div class="page">
   <header class="hero">
-    <div class="hero-badge">
-      <span class="dot"></span>
-      장민수 경기도의원 후원 안내
+    <div class="hero-badges">
+      <span class="hero-badge">💙 더불어민주당 경기도의원</span>
+      <span class="hero-badge">💫 안양시제5선거구 (평촌동, 평안동, 귀인동, 범계동, 갈산동)</span>
     </div>
     <h1 class="hero-title">
-      <span class="highlight">장민수</span> 의원과<br>함께해 주세요
+      평촌을 바꾸는 한 수,<br><span class="highlight">장민수</span>입니다.
     </h1>
     <p class="hero-sub">
-      <span class="line">의정활동에 힘을 보태주셔서 감사합니다.</span>
-      <span class="line">시민이 체감하는 변화를 만들기 위해</span>
-      <span class="line">더 성실히 뛰겠습니다.</span>
+      <span class="line">시민의 목소리를 세심히 살피고,</span>
+      <span class="line">삶에 닿는 변화를 하나씩 만들어가겠습니다.</span>
+      <span class="line">일상에서 체감되는 정치로 답하겠습니다.</span>
     </p>
   </header>
+
+  <p class="cta-text">평촌의 내일을 만들어갈 장민수에게 힘을 보태주세요.</p>
 
   <div class="card">
     <div class="card-header">
@@ -275,6 +287,26 @@
     </div>
   </div>
 
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon">🔗</div>
+      <h2 class="card-title">SNS로 만나요</h2>
+    </div>
+    <div class="sns-list">
+      <a class="sns-item" href="https://www.facebook.com/anyangcitizen" target="_blank" rel="noopener noreferrer">
+        <span class="sns-icon">📘</span>
+        <span class="sns-label">Facebook</span>
+      </a>
+      <a class="sns-item" href="https://www.instagram.com/anyang_citizen" target="_blank" rel="noopener noreferrer">
+        <span class="sns-icon">📷</span>
+        <span class="sns-label">Instagram</span>
+      </a>
+      <a class="sns-item" href="https://blog.naver.com/anyang_citizen" target="_blank" rel="noopener noreferrer">
+        <span class="sns-icon">📝</span>
+        <span class="sns-label">Blog</span>
+      </a>
+    </div>
+  </div>
 
 </div>
 
