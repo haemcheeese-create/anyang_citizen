@@ -41,14 +41,42 @@ DEFAULT_BASE = "https://fin.land.naver.com"
 # 지도 단위 조회는 쿼리스트링이 없다 = 영역 좌표를 본문에 담는 POST다.
 # 본문 형식은 아직 확인 전이라 여기 이름만 적어 둔다.
 MAP_ENDPOINTS = {
+    # 법정동 코드 배열을 그대로 받는다. 지도 좌표를 계산할 필요가 없어서
+    # 동 단위 수집에는 이쪽이 boundingBox 방식보다 정확하다.
+    "legal_complexes": "/front-api/v1/complex/legalDivisionComplexClusters",
+    "legal_articles": "/front-api/v1/article/legalDivisionArticleClusters",
+    # 좌표 사각형 기준. 참고용으로만 남긴다.
     "complex_clusters": "/front-api/v1/complex/complexClusters",
     "article_clusters": "/front-api/v1/article/map/articleClusters",
-    "clustered_articles": "/front-api/v1/article/clusteredArticles",
     "bounded_count": "/front-api/v1/article/boundedArticlesCount",
 }
 
+# 브라우저가 보내는 filter 객체를 그대로 옮겼다. 빈 배열들도 서버가 존재를
+# 기대할 수 있으므로 값이 없다고 빼지 않는다.
+def build_filter(trade_types: list[str], warranty_max: int, rent_max: int) -> dict:
+    return {
+        "tradeTypes": trade_types,
+        "realEstateTypes": [REAL_ESTATE_APT],
+        "roomCount": [],
+        "bathRoomCount": [],
+        "optionTypes": [],
+        "oneRoomShapeTypes": [],
+        "moveInTypes": [],
+        "warrantyPrice": {"min": 0, "max": warranty_max},
+        "rentPrice": {"min": 0, "max": rent_max},
+        "filtersExclusiveSpace": False,
+        "floorTypes": [],
+        "directionTypes": [],
+        "hasArticlePhoto": False,
+        "isAuthorizedByOwner": False,
+        "parkingTypes": [],
+        "entranceTypes": [],
+        "hasArticle": False,
+    }
+
 # 단지 단위 조회는 전부 GET + 쿼리스트링이라 그대로 부를 수 있다.
 COMPLEX_ENDPOINTS = {
+    "detail": "/front-api/v1/complex",
     "summary": "/front-api/v1/complex/mapComplexSummaryInfo",
     "pyeong_list": "/front-api/v1/complex/pyeongList",
     "pyeong_groups": "/front-api/v1/complex/pyeongGroups",
@@ -416,74 +444,36 @@ def normalize(article: dict, complex_name: str, trade_code: str, base: str = DEF
 # ---------------------------------------------------------------- 단지 탐색
 
 
-def discover_complexes(client: Client, cortar_no: str) -> list[dict]:
-    """법정동 코드로 단지 목록(complexNo 포함)을 가져온다.
+def discover_complexes(
+    client: Client,
+    cortar_nos: list[str],
+    trade_types: list[str],
+    warranty_max: int = 2_000_000_000,
+    rent_max: int = 20_000_000,
+) -> list[dict]:
+    """법정동 코드로 단지 목록을 가져온다.
 
-    엔드포인트가 여러 번 바뀐 이력이 있어 후보를 순서대로 시도하고,
-    처음 성공한 것을 쓴다.
+    브라우저는 지도 사각형(boundingBox)과 법정동 코드 두 가지 방식을 모두 쓰는데,
+    동 단위로 훑을 때는 좌표를 추정할 필요가 없는 법정동 쪽이 정확하다.
     """
-    attempts = [
-        (
-            "/api/regions/complexes",
-            {"cortarNo": cortar_no, "realEstateType": "APT", "order": ""},
-        ),
-        (
-            "/api/complexes/single-markers/v2",
-            {
-                "cortarNo": cortar_no,
-                "zoom": 15,
-                "realEstateType": "APT",
-                "tradeType": "",
-                "priceType": "RETAIL",
-                "leftLon": FALLBACK_BBOX["left"],
-                "rightLon": FALLBACK_BBOX["right"],
-                "topLat": FALLBACK_BBOX["top"],
-                "bottomLat": FALLBACK_BBOX["bottom"],
-            },
-        ),
-    ]
+    body = {
+        "filter": {
+            **build_filter(trade_types, warranty_max, rent_max),
+            "legalDivisionNumbers": cortar_nos,
+            "legalDivisionType": "EUP",
+        }
+    }
+    data = client.post(MAP_ENDPOINTS["legal_complexes"], body)
 
-    for path, params in attempts:
-        try:
-            data = client.get(path, params)
-        except TokenError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - 다음 후보로 넘어간다
-            print(f"  {path} 실패 ({exc}), 다음 방식 시도", file=sys.stderr)
-            continue
-
-        rows = data.get("complexList") if isinstance(data, dict) else data
-        if not rows:
-            print(f"  {path} 응답에 단지가 없음, 다음 방식 시도", file=sys.stderr)
-            continue
-
-        out = []
-        for row in rows:
-            no = first(row, "complexNo", "markerId", "hscpNo")
-            name = first(row, "complexName", "complexNm", "hscpNm")
-            if no and name:
-                out.append(
-                    {
-                        "complexNo": str(no),
-                        "complexName": str(name),
-                        "totalHouseholdCount": first(row, "totalHouseholdCount", "totHsehCnt"),
-                        "useApproveYmd": first(row, "useApproveYmd", "useAprDay"),
-                    }
-                )
-        if out:
-            print(f"  {path} 로 {len(out)}개 단지 확인", file=sys.stderr)
-            return out
-
-    raise RuntimeError(
-        f"cortarNo={cortar_no} 단지 목록을 못 가져왔습니다. 위 실패 사유를 확인하세요.\n"
-        "  · 'Tunnel connection failed' / 'urlopen error' → 네트워크가 막힌 환경입니다.\n"
-        "    Claude Code 웹 세션이 아니라 로컬 터미널에서 실행해 주세요.\n"
-        "  · 그 외 → 네이버가 엔드포인트를 바꿨을 수 있습니다. 브라우저에서 지도를\n"
-        "    움직일 때 나가는 요청을 Copy as cURL 로 확인한 뒤\n"
-        "    discover_complexes() 의 후보 목록에 추가하면 됩니다.\n"
-        "  · 급하면 단지 페이지 URL(new.land.naver.com/complexes/12345)의 숫자를\n"
-        "    fetch --complex 12345 로 직접 넘겨도 됩니다."
-    )
+    # 응답 구조를 아직 확인하지 못했으므로 단지 번호를 통째로 훑어 모은다.
+    numbers = sorted(str(v) for v in find_values(data, "complexNumber"))
+    if not numbers:
+        raise RuntimeError(
+            "단지 목록 응답에서 complexNumber 를 못 찾았습니다.\n"
+            "받은 구조는 아래와 같습니다. 키 이름을 알려주시면 맞추겠습니다.\n  "
+            + "\n  ".join(describe(data)[:40])
+        )
+    return [{"complexNo": no} for no in numbers]
 
 
 # ---------------------------------------------------------------- 매물 수집
@@ -593,17 +583,30 @@ def summarize(rows: list[dict]) -> None:
 # ---------------------------------------------------------------- CLI
 
 
+def complex_name(client: Client, complex_no: str) -> str:
+    """단지 이름을 찾는다. 못 찾으면 번호를 그대로 쓴다."""
+    for key in ("detail", "summary"):
+        try:
+            data = complex_get(client, key, complex_no)
+        except Exception:  # noqa: BLE001 - 이름은 있으면 좋은 정보지 필수가 아니다
+            continue
+        for field in ("complexName", "complexNm", "name"):
+            names = find_values(data, field)
+            if names:
+                return str(sorted(names)[0])
+    return f"단지{complex_no}"
+
+
 def cmd_discover(args: argparse.Namespace, client: Client) -> int:
-    cortar = CORTAR.get(args.dong, args.dong)
-    complexes = discover_complexes(client, cortar)
-    print(f"\n{args.dong} (cortarNo={cortar}) — {len(complexes)}개 단지\n")
-    print(f"{'complexNo':<12}{'단지명':<28}{'세대수':>8}  준공")
-    print("-" * 62)
+    dongs = args.dong or ["평촌동", "호계동"]
+    cortars = [CORTAR.get(d, d) for d in dongs]
+    complexes = discover_complexes(client, cortars, args.trade)
+
+    print(f"\n{'/'.join(dongs)} ({', '.join(cortars)}) — {len(complexes)}개 단지\n")
+    print(f"{'complexNo':<12}단지명")
+    print("-" * 46)
     for c in complexes:
-        print(
-            f"{c['complexNo']:<12}{c['complexName']:<28}"
-            f"{str(c['totalHouseholdCount'] or '-'):>8}  {c['useApproveYmd'] or '-'}"
-        )
+        print(f"{c['complexNo']:<12}{complex_name(client, c['complexNo'])}")
     return 0
 
 
@@ -644,32 +647,118 @@ def cmd_fetch(args: argparse.Namespace, client: Client) -> int:
 
 
 def cmd_run(args: argparse.Namespace, client: Client) -> int:
+    """프리셋 동네의 단지를 찾아 평형별 호가를 모은다."""
     dongs = args.dong or list(PRESETS)
-    targets: list[tuple[str, str]] = []
-
     for dong in dongs:
         if dong not in PRESETS:
             print(f"프리셋에 없는 동: {dong} (가능: {', '.join(PRESETS)})", file=sys.stderr)
             return 2
-        legal_dong, keywords = PRESETS[dong]
-        print(f"\n== {dong} (법정동 {legal_dong}) 단지 탐색", file=sys.stderr)
-        complexes = discover_complexes(client, CORTAR[legal_dong])
-        matched = [
-            c for c in complexes if any(kw in c["complexName"] for kw in keywords)
-        ]
-        print(f"   '{'/'.join(keywords)}' 매칭 {len(matched)}개", file=sys.stderr)
-        targets.extend((c["complexNo"], c["complexName"]) for c in matched)
 
+    cortars = [CORTAR[PRESETS[d][0]] for d in dongs]
+    keywords = [kw for d in dongs for kw in PRESETS[d][1]]
+    print(f"\n{'/'.join(dongs)} 단지 탐색 …", file=sys.stderr)
+    complexes = discover_complexes(client, cortars, args.trade)
+    print(f"  {len(complexes)}개 단지 확인", file=sys.stderr)
+
+    named = [(c["complexNo"], complex_name(client, c["complexNo"])) for c in complexes]
+    targets = [(no, nm) for no, nm in named if any(kw in nm for kw in keywords)]
+    print(f"  '{'/'.join(keywords)}' 매칭 {len(targets)}개", file=sys.stderr)
     if not targets:
-        print("대상 단지가 없습니다. discover 로 단지명을 먼저 확인해 보세요.", file=sys.stderr)
+        print("\n이름이 안 맞습니다. 전체 단지는 아래와 같습니다:", file=sys.stderr)
+        for no, nm in named:
+            print(f"  {no}  {nm}", file=sys.stderr)
         return 1
 
-    rows, raw = collect(client, targets, args.trade)
+    rows: list[dict] = []
+    raw: dict[str, Any] = {}
+    for idx, (no, name) in enumerate(targets, 1):
+        print(f"[{idx}/{len(targets)}] {name} ({no})", file=sys.stderr)
+        try:
+            pyeong_data = complex_get(client, "pyeong_list", no)
+        except Exception as exc:  # noqa: BLE001 - 한 단지 실패로 전체를 멈추지 않는다
+            print(f"    평형 조회 실패: {exc}", file=sys.stderr)
+            continue
+        raw[f"{no}.pyeong_list"] = pyeong_data
+
+        for pyeong in sorted(find_values(pyeong_data, "pyeongTypeNumber")):
+            for trade in args.trade:
+                try:
+                    ask = complex_get(
+                        client, "asking_price", no,
+                        pyeongTypeNumber=pyeong,
+                        realEstateType=REAL_ESTATE_APT,
+                        tradeType=trade,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    print(f"    평형{pyeong} {trade} 실패: {exc}", file=sys.stderr)
+                    continue
+                raw[f"{no}.asking.{pyeong}.{trade}"] = ask
+                rows.append(collect_asking_row(no, name, pyeong, trade, pyeong_data, ask))
+
+    os.makedirs(args.out, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M")
     label = "-".join(dongs)
-    csv_path, raw_path = write_outputs(rows, raw, args.out, label)
-    summarize(rows)
+    raw_path = os.path.join(args.out, f"{label}-{stamp}.raw.json")
+    with open(raw_path, "w", encoding="utf-8") as fh:
+        json.dump(raw, fh, ensure_ascii=False, indent=2)
+
+    if not rows:
+        print(f"\n호가를 못 뽑았습니다. 원본을 확인해 주세요: {raw_path}", file=sys.stderr)
+        return 1
+
+    csv_path = os.path.join(args.out, f"{label}-{stamp}.csv")
+    fields = list(rows[0])
+    with open(csv_path, "w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print_asking_table(rows)
     print(f"\nCSV: {csv_path}\n원본: {raw_path}")
     return 0
+
+
+def collect_asking_row(
+    complex_no: str, name: str, pyeong: Any, trade: str,
+    pyeong_data: Any, ask: Any,
+) -> dict:
+    """호가 응답에서 값을 뽑는다. 필드명을 확정하지 못해 후보를 넓게 본다."""
+    def pick(data: Any, *names: str) -> Any:
+        for n in names:
+            vals = {v for v in find_values(data, n) if isinstance(v, (int, float))}
+            if vals:
+                return min(vals) if "min" in n.lower() else max(vals)
+        return None
+
+    return {
+        "단지명": name,
+        "단지번호": complex_no,
+        "평형번호": pyeong,
+        "거래유형": TRADE_TYPES.get(trade, trade),
+        "최저가": pick(ask, "minPrice", "minDealPrice", "lowPrice"),
+        "최고가": pick(ask, "maxPrice", "maxDealPrice", "highPrice"),
+        "매물수": pick(ask, "count", "articleCount", "totalCount"),
+        "링크": f"{PAGE_BASE}/complexes/{complex_no}",
+    }
+
+
+def print_asking_table(rows: list[dict]) -> None:
+    def won(v: Any) -> str:
+        if not isinstance(v, (int, float)):
+            return "-"
+        man = int(v) // 10000          # 원 -> 만원
+        if man >= 10000:
+            eok, rest = divmod(man, 10000)
+            return f"{eok}억 {rest:,}" if rest else f"{eok}억"
+        return f"{man:,}"
+
+    print(f"\n{'단지':<22}{'평형':>5}{'유형':>6}{'최저':>13}{'최고':>13}{'매물':>6}")
+    print("-" * 66)
+    for r in rows:
+        print(
+            f"{r['단지명'][:20]:<22}{str(r['평형번호']):>5}{r['거래유형']:>6}"
+            f"{won(r['최저가']):>13}{won(r['최고가']):>13}{str(r['매물수'] or '-'):>6}"
+        )
 
 
 # ---------------------------------------------------------------- 단지 조회
@@ -892,7 +981,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     d = sub.add_parser("discover", parents=[common], help="법정동의 단지 목록과 complexNo 조회")
-    d.add_argument("dong", help="법정동명(평촌동/호계동/…) 또는 cortarNo")
+    d.add_argument("dong", nargs="*", help="법정동명(평촌동/호계동/…) 또는 코드. 기본: 평촌동 호계동")
+    d.add_argument("--trade", nargs="+", default=["B1", "B2"], choices=list(TRADE_TYPES))
     d.set_defaults(func=cmd_discover)
 
     r = sub.add_parser("run", parents=[common], help="프리셋(평안동/범계동) 전체 수집")
