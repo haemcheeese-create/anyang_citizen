@@ -36,14 +36,31 @@ from typing import Any, Iterable, NamedTuple
 PAGE_BASE = "https://new.land.naver.com"
 DEFAULT_BASE = "https://fin.land.naver.com"
 
-# 브라우저에서 실제로 확인한 엔드포인트. 전부 쿼리스트링이 없다 = 조건을
-# 본문에 담아 보내는 POST다.
-ENDPOINTS = {
+# 브라우저 XHR 로그에서 그대로 확인한 엔드포인트.
+#
+# 지도 단위 조회는 쿼리스트링이 없다 = 영역 좌표를 본문에 담는 POST다.
+# 본문 형식은 아직 확인 전이라 여기 이름만 적어 둔다.
+MAP_ENDPOINTS = {
     "complex_clusters": "/front-api/v1/complex/complexClusters",
     "article_clusters": "/front-api/v1/article/map/articleClusters",
     "clustered_articles": "/front-api/v1/article/clusteredArticles",
     "bounded_count": "/front-api/v1/article/boundedArticlesCount",
 }
+
+# 단지 단위 조회는 전부 GET + 쿼리스트링이라 그대로 부를 수 있다.
+COMPLEX_ENDPOINTS = {
+    "summary": "/front-api/v1/complex/mapComplexSummaryInfo",
+    "pyeong_list": "/front-api/v1/complex/pyeongList",
+    "pyeong_groups": "/front-api/v1/complex/pyeongGroups",
+    "article_count": "/front-api/v1/complex/article/count",
+    "asking_price": "/front-api/v1/complex/asking-price",
+    "market_recent": "/front-api/v1/complex/marketPrice/recent",
+    "real_price": "/front-api/v1/complex/pyeong/realPrice/list",
+}
+
+# 관측된 코드값
+REAL_ESTATE_APT = "A01"          # 아파트
+MARKET_CPS = ["kab", "kbstar", "neonet"]   # 시세 제공처
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -278,7 +295,7 @@ class Client:
     ) -> Any:
         url = f"{self.base}{path}"
         if params:
-            url = f"{url}?{urllib.parse.urlencode(params)}"
+            url = f"{url}?{urllib.parse.urlencode(params, doseq=True)}"
         payload = json.dumps(body).encode("utf-8") if body is not None else None
 
         headers = {
@@ -655,6 +672,127 @@ def cmd_run(args: argparse.Namespace, client: Client) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- 단지 조회
+
+
+def describe(obj: Any, path: str = "", out: list[str] | None = None, depth: int = 0) -> list[str]:
+    """응답의 구조를 키 경로로 펼쳐 보여준다.
+
+    응답 형식을 아직 모르는 상태라 파서를 먼저 쓸 수가 없다. 실제로 받은
+    모양을 눈으로 확인하고 나서 정확한 필드만 뽑는 게 순서다.
+    """
+    if out is None:
+        out = []
+    if depth > 4 or len(out) > 120:
+        return out
+
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            describe(v, f"{path}.{k}" if path else k, out, depth + 1)
+    elif isinstance(obj, list):
+        out.append(f"{path}[] ({len(obj)}건)")
+        if obj:
+            describe(obj[0], f"{path}[0]", out, depth + 1)
+    else:
+        text = str(obj)
+        if len(text) > 60:
+            text = text[:57] + "..."
+        out.append(f"{path} = {text}")
+    return out
+
+
+def complex_get(client: Client, key: str, complex_no: str, **extra: Any) -> Any:
+    params: dict[str, Any] = {"complexNumber": complex_no}
+    params.update(extra)
+    return client.get(COMPLEX_ENDPOINTS[key], params,
+                      referer=f"{PAGE_BASE}/complexes/{complex_no}")
+
+
+def cmd_complex(args: argparse.Namespace, client: Client) -> int:
+    """단지 하나를 확인된 GET 엔드포인트로 훑는다.
+
+    응답을 전부 파일로 남기고 구조를 출력한다. 지도 단위 POST 의 본문 형식을
+    아직 모르므로, 단지 번호를 아는 경우에 한해 여기부터 실제로 동작한다.
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    year_ago = f"{datetime.now().year - 1}{datetime.now().strftime('-%m-%d')}"
+    dump: dict[str, Any] = {}
+
+    for complex_no in args.complex:
+        print(f"\n{'=' * 60}\n단지 {complex_no}\n{'=' * 60}")
+
+        calls: list[tuple[str, dict[str, Any]]] = [
+            ("summary", {}),
+            ("article_count", {}),
+            ("pyeong_list", {}),
+        ]
+        for key, extra in calls:
+            try:
+                data = complex_get(client, key, complex_no, **extra)
+            except TokenError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - 한 엔드포인트 실패로 멈추지 않는다
+                print(f"\n[{key}] 실패: {exc}")
+                continue
+            dump[f"{complex_no}.{key}"] = data
+            print(f"\n[{key}]")
+            for line in describe(data):
+                print(f"  {line}")
+
+        # 평형 번호를 알아야 호가/실거래를 부를 수 있다. 응답 어디에 있는지
+        # 모르니 pyeongList 전체에서 그럴듯한 값을 긁는다.
+        pyeongs = sorted(find_values(dump.get(f"{complex_no}.pyeong_list"), "pyeongTypeNumber"))
+        if not pyeongs:
+            print("\n평형 번호를 못 찾았습니다. 위 pyeong_list 구조를 보고 키 이름을 알려주세요.")
+            pyeongs = [args.pyeong] if args.pyeong else []
+
+        for pyeong in pyeongs[: args.max_pyeong]:
+            for trade in args.trade:
+                for key, extra in (
+                    ("asking_price", {"pyeongTypeNumber": pyeong,
+                                      "realEstateType": REAL_ESTATE_APT, "tradeType": trade}),
+                    ("real_price", {"pyeongTypeNumber": pyeong,
+                                    "realEstateType": REAL_ESTATE_APT, "tradeType": trade,
+                                    "startDate": year_ago, "endDate": today}),
+                    ("market_recent", {"pyeongTypeNumber": pyeong,
+                                       "realEstateType": REAL_ESTATE_APT,
+                                       "cpList[]": MARKET_CPS}),
+                ):
+                    try:
+                        data = complex_get(client, key, complex_no, **extra)
+                    except TokenError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"\n[{key} 평형{pyeong} {trade}] 실패: {exc}")
+                        continue
+                    dump[f"{complex_no}.{key}.{pyeong}.{trade}"] = data
+                    print(f"\n[{key}] 평형{pyeong} {TRADE_TYPES.get(trade, trade)}")
+                    for line in describe(data):
+                        print(f"  {line}")
+
+    os.makedirs(args.out, exist_ok=True)
+    path = os.path.join(args.out, f"complex-{datetime.now():%Y%m%d-%H%M}.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(dump, fh, ensure_ascii=False, indent=2)
+    print(f"\n원본 응답 저장: {path}")
+    return 0
+
+
+def find_values(obj: Any, key: str) -> set:
+    """중첩 구조 어디에 있든 해당 키의 값을 전부 모은다."""
+    found: set = set()
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == key and isinstance(v, (int, str)):
+                found.add(v)
+            else:
+                found |= find_values(v, key)
+    elif isinstance(obj, list):
+        for item in obj:
+            found |= find_values(item, key)
+    return found
+
+
 def cmd_inspect(args: argparse.Namespace) -> int:
     """HAR 안에서 발견한 부동산 API 요청을 보여준다. 인증이 필요 없다.
 
@@ -761,6 +899,14 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--dong", nargs="*", choices=list(PRESETS), help="기본: 전체")
     r.add_argument("--trade", nargs="+", default=["B1", "B2"], choices=list(TRADE_TYPES))
     r.set_defaults(func=cmd_run)
+
+    c = sub.add_parser("complex", parents=[common],
+                       help="단지 번호로 조회 (확인된 GET API, 지금 동작함)")
+    c.add_argument("complex", nargs="+", help="단지 번호. 예: 3022")
+    c.add_argument("--trade", nargs="+", default=["B1", "B2"], choices=list(TRADE_TYPES))
+    c.add_argument("--pyeong", help="평형 번호를 직접 지정")
+    c.add_argument("--max-pyeong", type=int, default=3, help="평형 몇 개까지 볼지, 기본 3")
+    c.set_defaults(func=cmd_complex)
 
     i = sub.add_parser("inspect", parents=[common], help="HAR 안의 API 요청 확인 (인증 불필요)")
     i.set_defaults(func=None)
