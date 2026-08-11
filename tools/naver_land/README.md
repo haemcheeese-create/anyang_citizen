@@ -1,10 +1,15 @@
 # 네이버 부동산 매물 수집기 (평촌 평안동 / 범계동)
 
-`new.land.naver.com`의 내부 API를 호출해서 아파트 전월세 **호가 매물**을 CSV로 뽑는다.
+네이버페이 부동산의 내부 API를 호출해서 아파트 전월세 **호가 매물**을 CSV로 뽑는다.
 국토부 실거래가와 달리 "지금 시장에 나와 있는 매물"이 대상이다.
 
+> 서비스가 네이버 부동산 → **네이버페이 부동산**(NAVER FINANCIAL)으로 넘어가면서
+> 옛 주소 `new.land.naver.com` 은 404를 낸다. 도메인을 코드에 박아두지 않고
+> `--from-curl` 덤프에 들어 있는 실제 요청 URL에서 읽으므로, 주소가 또 바뀌어도
+> 새로 복사만 하면 된다.
+
 > 로컬(터미널/데스크톱)에서 실행할 것. Claude Code 웹 세션은 egress allowlist에
-> 막혀 있어서 `new.land.naver.com`에 접속하지 못한다.
+> 막혀 있어서 네이버 도메인에 접속하지 못한다.
 
 ## 준비
 
@@ -14,24 +19,38 @@
 
 공식 API가 아니라서 브라우저가 발급받은 Bearer 토큰을 빌려 쓴다.
 
-1. 브라우저에서 <https://new.land.naver.com> 접속
-2. 아무 단지나 눌러서 매물 목록이 뜨게 함
-3. DevTools(F12) → **Network** → **Fetch/XHR** 필터
-4. `articles/complex/...` 요청 우클릭 → **Copy → Copy as cURL**
-5. 붙여넣어서 파일로 저장 (예: `curl.txt`)
+1. 브라우저에서 네이버페이 부동산 접속 (네이버에 "네이버 부동산" 검색 → 첫 결과)
+2. DevTools 열기 — **맥은 F12가 아니라 ⌥⌘I**, 또는 우클릭 → **검사**
+   (윈도우/리눅스는 F12)
+3. **Network** 탭 → 필터 줄에서 **Fetch/XHR**
+4. **DevTools를 열어둔 채로** 아파트 단지를 하나 클릭 — 이때부터 요청이 잡힌다.
+   열기 전에 오간 요청은 목록에 안 남는다.
+5. 매물 목록을 불러오는 요청(이름에 `article` / `complex` 가 들어간 것) 우클릭 →
+   **Copy → Copy as cURL** (한글판은 **복사 → cURL로 복사**)
+6. 붙여넣어서 파일로 저장 (예: `curl.txt`)
+
+제대로 복사했는지 먼저 확인:
+
+```bash
+python3 -c "import naver_land; print(naver_land.token_from_curl('curl.txt'))"
+```
+
+`Creds(token='Bearer eyJ...', cookie='NNB=...', base='https://...')` 처럼
+세 개가 다 나오면 된다.
 
 ```bash
 python naver_land.py --from-curl curl.txt run
 ```
 
-토큰만 따로 쓰고 싶으면 cURL 덤프의 `authorization:` 값을 환경변수로:
+토큰만 따로 쓰고 싶으면 환경변수로 넘겨도 되는데, 이때는 도메인을 자동으로
+알아낼 수 없으니 기본값과 다르면 `--base` 를 같이 줘야 한다:
 
 ```bash
 export NAVER_LAND_TOKEN='Bearer eyJ...'
-python naver_land.py run
+python naver_land.py --base https://fin.land.naver.com run
 ```
 
-**토큰은 대략 하루 안팎으로 만료된다.** `HTTP 401` 이 뜨면 4~5단계를 다시 하면 된다.
+**토큰은 대략 하루 안팎으로 만료된다.** `HTTP 401` 이 뜨면 위 5~6단계를 다시 하면 된다.
 
 ## 사용
 
@@ -80,9 +99,11 @@ python naver_land.py fetch --complex 12345 67890 --trade B1 B2
 
 - 네이버는 자동 수집을 약관에서 제한하고 IP 차단도 건다. 기본 요청 간격이 1.5초로
   잡혀 있으니 `--delay` 를 더 낮추지 말 것. 개인 확인 용도 범위로만 쓴다.
-- 공식 API가 아니라서 네이버가 스펙을 바꾸면 깨진다. `discover` 가 실패하면
-  브라우저에서 지도를 움직일 때 나가는 요청을 Copy as cURL 로 확인해서
-  `discover_complexes()` 의 후보 목록에 추가하면 된다.
+- 공식 API가 아니라서 네이버가 스펙을 바꾸면 깨진다. 실제로 네이버페이로
+  넘어가면서 도메인이 바뀌었고 엔드포인트 경로도 함께 바뀌었을 수 있다.
+  `discover` 가 실패하면 브라우저에서 지도를 움직일 때 나가는 요청을
+  Copy as cURL 로 확인해서 `discover_complexes()` 의 후보 목록에 추가하면 된다.
+  `-v` 를 주면 스크립트가 실제로 부른 URL이 찍히니 브라우저 쪽과 비교하기 쉽다.
 - 급하면 `discover` 없이 단지 페이지 URL에서 번호를 직접 읽어 `fetch --complex` 로 넘겨도 된다.
 
 ## 참고: 실거래가가 필요하다면

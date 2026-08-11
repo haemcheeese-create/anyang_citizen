@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-네이버 부동산(new.land.naver.com) 매물 수집기 — 평촌 평안동/범계동 전월세용.
+네이버페이 부동산 매물 수집기 — 평촌 평안동/범계동 전월세용.
 
 공식 API가 아니라 웹사이트가 내부적으로 쓰는 엔드포인트를 그대로 호출한다.
 따라서 (1) 브라우저에서 발급된 Bearer 토큰이 필요하고, (2) 네이버가 스펙을
@@ -27,9 +27,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any, Iterable, NamedTuple
 
-BASE = "https://new.land.naver.com"
+# 네이버 부동산이 네이버페이 부동산(NAVER FINANCIAL)으로 넘어가면서 도메인이 바뀌었고,
+# 또 바뀔 수 있다. 그래서 이 값은 최후의 폴백일 뿐이고, --from-curl 을 쓰면
+# cURL 덤프에 들어 있는 실제 요청 URL에서 오리진을 그대로 읽어 쓴다.
+DEFAULT_BASE = "https://fin.land.naver.com"
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -69,11 +72,17 @@ class TokenError(RuntimeError):
 # ---------------------------------------------------------------- 인증
 
 
-def token_from_curl(path: str) -> tuple[str, str]:
-    """DevTools 'Copy as cURL' 덤프에서 Authorization / Cookie 헤더를 뽑아낸다.
+class Creds(NamedTuple):
+    token: str
+    cookie: str
+    base: str
 
-    토큰 형식을 추측하는 것보다 브라우저가 실제로 보낸 헤더를 그대로 쓰는 게
-    가장 확실하다. 파라미터 이름이 바뀌어도 이 방식은 살아남는다.
+
+def token_from_curl(path: str) -> Creds:
+    """DevTools 'Copy as cURL' 덤프에서 오리진 / Authorization / Cookie 를 뽑아낸다.
+
+    토큰 형식이나 도메인을 추측하는 것보다 브라우저가 실제로 보낸 요청을 그대로
+    쓰는 게 가장 확실하다. 네이버가 도메인이나 파라미터를 바꿔도 이 방식은 살아남는다.
     """
     with open(path, "r", encoding="utf-8") as fh:
         blob = fh.read()
@@ -92,25 +101,41 @@ def token_from_curl(path: str) -> tuple[str, str]:
     # cURL은 헤더 전체를 한 번에 따옴표로 감싸므로(-H 'cookie: a=b; c=d')
     # 값 앞에 따옴표가 없다. 값 뒤의 닫는 따옴표/줄바꿈까지만 잘라낸다.
     cookie = re.search(r"""["']?cookie["']?\s*:\s*([^"'\n]+)""", blob, re.IGNORECASE)
-    return auth.group(1).strip(), (cookie.group(1).strip() if cookie else "")
+
+    # 도메인은 하드코딩하지 않고 덤프 안의 실제 요청 URL에서 읽는다.
+    origin = DEFAULT_BASE
+    url = re.search(r"""curl\s+['"]?(https?://[^/'"\s]+)""", blob, re.IGNORECASE)
+    if url:
+        origin = url.group(1)
+
+    return Creds(
+        auth.group(1).strip(),
+        cookie.group(1).strip() if cookie else "",
+        origin,
+    )
 
 
-def load_auth(args: argparse.Namespace) -> tuple[str, str]:
+def load_auth(args: argparse.Namespace) -> Creds:
     if args.from_curl:
-        return token_from_curl(args.from_curl)
+        creds = token_from_curl(args.from_curl)
+        # 명시적 --base 는 덤프에서 읽은 값보다 우선한다.
+        return creds._replace(base=args.base) if args.base else creds
 
+    base = args.base or os.environ.get("NAVER_LAND_BASE", "").strip() or DEFAULT_BASE
     token = os.environ.get("NAVER_LAND_TOKEN", "").strip()
     if token:
         if not token.lower().startswith("bearer "):
             token = f"Bearer {token}"
-        return token, os.environ.get("NAVER_LAND_COOKIE", "").strip()
+        return Creds(token, os.environ.get("NAVER_LAND_COOKIE", "").strip(), base)
 
     raise TokenError(
         "토큰이 없습니다.\n"
-        "  1) 브라우저에서 https://new.land.naver.com 접속 후 원하는 조건으로 검색\n"
-        "  2) DevTools > Network > XHR 요청 하나 우클릭 > Copy as cURL\n"
-        "  3) 그 내용을 파일로 저장하고  --from-curl <파일>  로 넘기거나,\n"
-        "     Authorization 값만 잘라서  export NAVER_LAND_TOKEN='Bearer eyJ...'\n"
+        "  1) 브라우저에서 네이버페이 부동산 접속 (검색창에 '네이버 부동산')\n"
+        "  2) 아파트 단지를 하나 클릭해서 매물 목록이 뜨게 함\n"
+        "  3) DevTools > Network > Fetch/XHR > 요청 하나 우클릭 > Copy as cURL\n"
+        "  4) 그 내용을 파일로 저장하고  --from-curl <파일>  로 넘기면\n"
+        "     토큰과 도메인을 알아서 읽습니다. (권장)\n"
+        "     또는  export NAVER_LAND_TOKEN='Bearer eyJ...'  +  --base <도메인>\n"
     )
 
 
@@ -118,9 +143,10 @@ def load_auth(args: argparse.Namespace) -> tuple[str, str]:
 
 
 class Client:
-    def __init__(self, token: str, cookie: str = "", delay: float = 1.5, verbose: bool = False):
-        self.token = token
-        self.cookie = cookie
+    def __init__(self, creds: Creds, delay: float = 1.5, verbose: bool = False):
+        self.token = creds.token
+        self.cookie = creds.cookie
+        self.base = creds.base
         self.delay = delay
         self.verbose = verbose
         self._last_call = 0.0
@@ -135,7 +161,7 @@ class Client:
         self._last_call = time.monotonic()
 
     def get(self, path: str, params: dict[str, Any] | None = None, referer: str = "") -> Any:
-        url = f"{BASE}{path}"
+        url = f"{self.base}{path}"
         if params:
             url = f"{url}?{urllib.parse.urlencode(params)}"
 
@@ -145,7 +171,7 @@ class Client:
             "Accept": "*/*",
             "Accept-Encoding": "gzip",
             "Accept-Language": "ko-KR,ko;q=0.9",
-            "Referer": referer or f"{BASE}/complexes",
+            "Referer": referer or f"{self.base}/complexes",
         }
         if self.cookie:
             headers["Cookie"] = self.cookie
@@ -219,7 +245,7 @@ def first(d: dict, *keys: str) -> Any:
     return None
 
 
-def normalize(article: dict, complex_name: str, trade_code: str) -> dict:
+def normalize(article: dict, complex_name: str, trade_code: str, base: str = DEFAULT_BASE) -> dict:
     deal = first(article, "dealOrWarrantPrc")
     rent = first(article, "rentPrc")
     return {
@@ -241,7 +267,7 @@ def normalize(article: dict, complex_name: str, trade_code: str) -> dict:
         "동일매물수": first(article, "sameAddrCnt"),
         "태그": ",".join(article.get("tagList") or []),
         "매물번호": first(article, "articleNo"),
-        "링크": f"{BASE}/articles/{first(article, 'articleNo')}"
+        "링크": f"{base}/articles/{first(article, 'articleNo')}"
         if first(article, "articleNo")
         else "",
     }
@@ -333,7 +359,7 @@ def fetch_articles(
     """단지 하나의 매물을 전부 긁는다. (정규화 결과, 원본) 튜플 반환."""
     normalized: list[dict] = []
     raw: list[dict] = []
-    referer = f"{BASE}/complexes/{complex_no}"
+    referer = f"{client.base}/complexes/{complex_no}"
 
     for page in range(1, max_pages + 1):
         data = client.get(
@@ -355,7 +381,7 @@ def fetch_articles(
             art["_complexNo"] = complex_no
             art["_complexName"] = complex_name
             raw.append(art)
-            normalized.append(normalize(art, complex_name, trade_code))
+            normalized.append(normalize(art, complex_name, trade_code, client.base))
 
         if not data.get("isMoreData"):
             break
@@ -516,6 +542,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="DevTools 'Copy as cURL' 덤프 파일",
     )
     common.add_argument(
+        "--base", metavar="URL", default=argparse.SUPPRESS,
+        help="API 오리진 직접 지정 (예: https://fin.land.naver.com). "
+             "--from-curl 을 쓰면 덤프에서 자동으로 읽으므로 보통 불필요",
+    )
+    common.add_argument(
         "--delay", type=float, default=argparse.SUPPRESS,
         help="요청 간 최소 간격(초), 기본 1.5",
     )
@@ -562,7 +593,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-COMMON_DEFAULTS = {"from_curl": None, "delay": 1.5, "out": "out", "verbose": False}
+COMMON_DEFAULTS = {"from_curl": None, "base": None, "delay": 1.5, "out": "out", "verbose": False}
 
 
 def apply_defaults(args: argparse.Namespace) -> argparse.Namespace:
@@ -575,12 +606,12 @@ def apply_defaults(args: argparse.Namespace) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = apply_defaults(build_parser().parse_args(argv))
     try:
-        token, cookie = load_auth(args)
+        creds = load_auth(args)
     except TokenError as exc:
         print(f"\n{exc}", file=sys.stderr)
         return 2
 
-    client = Client(token, cookie, delay=args.delay, verbose=args.verbose)
+    client = Client(creds, delay=args.delay, verbose=args.verbose)
     try:
         return args.func(args, client)
     except TokenError as exc:
