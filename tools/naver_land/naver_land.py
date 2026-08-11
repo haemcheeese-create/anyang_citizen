@@ -29,12 +29,21 @@ import urllib.request
 from datetime import datetime
 from typing import Any, Iterable, NamedTuple
 
-# 확인된 동작 주소. 서비스 이름이 네이버페이 부동산으로 바뀌면서 페이지에
-# NAVER FINANCIAL 로고가 붙지만 도메인은 그대로다.
-#   https://new.land.naver.com/complexes?ms=<lat>,<lon>,<zoom>&a=APT:PRE:ABYG:JGC&e=RETAIL
-# 그래도 이 값은 폴백일 뿐이고, --from-har / --from-curl 을 쓰면 실제 요청
-# URL에서 오리진을 읽어 쓴다. 주소를 코드가 알고 있다고 가정하지 않는다.
-DEFAULT_BASE = "https://new.land.naver.com"
+# 페이지와 API의 호스트가 다르다. 화면은 new.land.naver.com 이 그리고,
+# 데이터는 fin.land.naver.com 의 front-api 가 준다.
+#   페이지: https://new.land.naver.com/complexes?ms=<lat>,<lon>,<zoom>&a=APT:...&e=RETAIL
+#   API   : https://fin.land.naver.com/front-api/v1/...
+PAGE_BASE = "https://new.land.naver.com"
+DEFAULT_BASE = "https://fin.land.naver.com"
+
+# 브라우저에서 실제로 확인한 엔드포인트. 전부 쿼리스트링이 없다 = 조건을
+# 본문에 담아 보내는 POST다.
+ENDPOINTS = {
+    "complex_clusters": "/front-api/v1/complex/complexClusters",
+    "article_clusters": "/front-api/v1/article/map/articleClusters",
+    "clustered_articles": "/front-api/v1/article/clusteredArticles",
+    "bounded_count": "/front-api/v1/article/boundedArticlesCount",
+}
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -254,17 +263,34 @@ class Client:
         self._last_call = time.monotonic()
 
     def get(self, path: str, params: dict[str, Any] | None = None, referer: str = "") -> Any:
+        return self.request("GET", path, params=params, referer=referer)
+
+    def post(self, path: str, body: dict[str, Any], referer: str = "") -> Any:
+        return self.request("POST", path, body=body, referer=referer)
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None = None,
+        body: dict[str, Any] | None = None,
+        referer: str = "",
+    ) -> Any:
         url = f"{self.base}{path}"
         if params:
             url = f"{url}?{urllib.parse.urlencode(params)}"
+        payload = json.dumps(body).encode("utf-8") if body is not None else None
 
         headers = {
             "User-Agent": UA,
             "Accept": "*/*",
             "Accept-Encoding": "gzip",
             "Accept-Language": "ko-KR,ko;q=0.9",
-            "Referer": referer or f"{self.base}/complexes",
+            "Referer": referer or f"{PAGE_BASE}/complexes",
+            "Origin": PAGE_BASE,
         }
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
         if self.token:
             headers["Authorization"] = self.token
         if self.cookie:
@@ -274,9 +300,11 @@ class Client:
         for attempt in range(4):
             self._throttle()
             if self.verbose:
-                print(f"  GET {url}", file=sys.stderr)
+                print(f"  {method} {url}", file=sys.stderr)
+                if payload is not None:
+                    print(f"       {payload.decode('utf-8')}", file=sys.stderr)
             try:
-                req = urllib.request.Request(url, headers=headers)
+                req = urllib.request.Request(url, data=payload, headers=headers, method=method)
                 with urllib.request.urlopen(req, timeout=20) as resp:
                     raw = resp.read()
                     if resp.headers.get("Content-Encoding") == "gzip":
@@ -304,7 +332,7 @@ class Client:
                 time.sleep(2**attempt)
                 last_err = exc
 
-        raise RuntimeError(f"{url} 요청 실패: {last_err}")
+        raise RuntimeError(f"{method} {url} 요청 실패: {last_err}")
 
 
 # ---------------------------------------------------------------- 파싱
@@ -362,7 +390,7 @@ def normalize(article: dict, complex_name: str, trade_code: str, base: str = DEF
         "동일매물수": first(article, "sameAddrCnt"),
         "태그": ",".join(article.get("tagList") or []),
         "매물번호": first(article, "articleNo"),
-        "링크": f"{base}/articles/{first(article, 'articleNo')}"
+        "링크": f"{PAGE_BASE}/articles/{first(article, 'articleNo')}"
         if first(article, "articleNo")
         else "",
     }
@@ -454,7 +482,7 @@ def fetch_articles(
     """단지 하나의 매물을 전부 긁는다. (정규화 결과, 원본) 튜플 반환."""
     normalized: list[dict] = []
     raw: list[dict] = []
-    referer = f"{client.base}/complexes/{complex_no}"
+    referer = f"{PAGE_BASE}/complexes/{complex_no}"
 
     for page in range(1, max_pages + 1):
         data = client.get(
