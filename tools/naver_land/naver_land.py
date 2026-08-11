@@ -162,16 +162,55 @@ def cookie_from_clipboard() -> str:
         text = done.stdout.strip() if done.returncode == 0 else ""
         if not text:
             continue
-        if "=" not in text:
-            raise TokenError(
-                "클립보드 내용이 쿠키처럼 보이지 않습니다.\n"
-                "브라우저 콘솔에서  copy(document.cookie)  를 먼저 실행해 주세요."
-            )
+        if not looks_like_cookies(text):
+            raise TokenError(clipboard_mismatch(text))
         return text
 
     raise TokenError(
         "클립보드를 읽지 못했습니다. --cookie-file <파일> 을 쓰거나,\n"
         "쿠키를 파일로 저장한 뒤 그 경로를 넘겨 주세요."
+    )
+
+
+def looks_like_cookies(text: str) -> bool:
+    """쿠키 문자열인지 대충 본다. name=value 쌍이 여러 개면 쿠키로 친다."""
+    pairs = [p for p in text.split(";") if "=" in p and p.split("=")[0].strip()]
+    return len(pairs) >= 2
+
+
+def cookie_names(text: str) -> list[str]:
+    """쿠키 이름만 뽑는다. 값은 로그인 세션이라 절대 반환하지 않는다."""
+    names = []
+    for part in text.split(";"):
+        name = part.split("=")[0].strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def clipboard_mismatch(text: str) -> str:
+    """클립보드에 뭐가 들어 있었는지 짚어준다.
+
+    지금까지 가장 자주 난 사고가 브라우저 콘솔에 넣을 것을 터미널에 넣는 것이라,
+    '쿠키가 아니다'로 끝내지 않고 무엇이 들어 있었는지까지 말해 준다.
+    """
+    head = text.strip().splitlines()[0][:60] if text.strip() else "(비어 있음)"
+    if text.lstrip().startswith(("cd ", "curl ", "python", "copy(")):
+        what = "터미널 명령어가 들어 있습니다"
+    elif text.lstrip().startswith("http"):
+        what = "주소(URL)가 들어 있습니다"
+    else:
+        what = "쿠키 형식이 아닙니다"
+
+    return (
+        f"클립보드에 {what}.\n"
+        f"  들어 있던 내용: {head}\n\n"
+        "copy(document.cookie) 는 터미널이 아니라 브라우저에서 실행합니다.\n"
+        "  1. 크롬에서 네이버 지도 화면을 연다\n"
+        "  2. ⌥⌘I 를 눌러 Console 탭으로 간다\n"
+        "  3. 거기에 copy(document.cookie) 를 입력하고 엔터\n"
+        "     (undefined 라고 뜨는 게 정상 — 클립보드에 복사된 상태다)\n"
+        "  4. 그다음 터미널로 돌아온다"
     )
 
 
@@ -957,6 +996,28 @@ def find_values(obj: Any, key: str) -> set:
     return found
 
 
+def cmd_cookie(args: argparse.Namespace) -> int:
+    """클립보드의 쿠키를 확인만 한다. 네트워크를 쓰지 않는다.
+
+    본 작업을 돌리기 전에 준비가 됐는지 값싸게 확인할 수단이 필요하다.
+    쿠키 이름만 출력하므로 이 결과는 공유해도 안전하다.
+    """
+    text = cookie_from_clipboard()
+    names = cookie_names(text)
+    naver = [n for n in names if n in ("NNB", "NID_SES", "NID_AUT", "NAC", "NACT")]
+
+    print(f"\n쿠키 {len(names)}개 확인됨 (값은 출력하지 않습니다)")
+    print("  " + ", ".join(names[:12]) + (" …" if len(names) > 12 else ""))
+    if naver:
+        print(f"\n네이버 쿠키 확인: {', '.join(naver)}")
+        print("준비됐습니다. 같은 명령에 --cookie-clipboard 를 붙여 실행하세요.")
+        return 0
+
+    print("\n네이버 쿠키(NNB/NID_SES 등)가 안 보입니다.")
+    print("네이버 지도 화면에서 copy(document.cookie) 를 실행했는지 확인해 주세요.")
+    return 1
+
+
 def cmd_inspect(args: argparse.Namespace) -> int:
     """HAR 안에서 발견한 부동산 API 요청을 보여준다. 인증이 필요 없다.
 
@@ -1081,6 +1142,10 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--max-pyeong", type=int, default=3, help="평형 몇 개까지 볼지, 기본 3")
     c.set_defaults(func=cmd_complex)
 
+    k = sub.add_parser("cookie", parents=[common],
+                       help="클립보드의 쿠키 확인 (네트워크 안 씀)")
+    k.set_defaults(func=None)
+
     i = sub.add_parser("inspect", parents=[common], help="HAR 안의 API 요청 확인 (인증 불필요)")
     i.set_defaults(func=None)
 
@@ -1107,9 +1172,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # inspect 는 토큰 없이도 돌아야 한다. 토큰을 못 구했을 때 쓰는 진단 명령이라
     # 여기서 인증을 요구하면 순서가 거꾸로다.
-    if args.cmd == "inspect":
+    if args.cmd in ("inspect", "cookie"):
         try:
-            return cmd_inspect(args)
+            return cmd_inspect(args) if args.cmd == "inspect" else cmd_cookie(args)
         except (TokenError, RuntimeError) as exc:
             print(f"\n{exc}", file=sys.stderr)
             return 1
