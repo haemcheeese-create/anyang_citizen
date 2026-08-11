@@ -29,10 +29,12 @@ import urllib.request
 from datetime import datetime
 from typing import Any, Iterable, NamedTuple
 
-# 네이버 부동산이 네이버페이 부동산(NAVER FINANCIAL)으로 넘어가면서 도메인이 바뀌었고,
-# 또 바뀔 수 있다. 그래서 이 값은 최후의 폴백일 뿐이고, --from-curl 을 쓰면
-# cURL 덤프에 들어 있는 실제 요청 URL에서 오리진을 그대로 읽어 쓴다.
-DEFAULT_BASE = "https://fin.land.naver.com"
+# 확인된 동작 주소. 서비스 이름이 네이버페이 부동산으로 바뀌면서 페이지에
+# NAVER FINANCIAL 로고가 붙지만 도메인은 그대로다.
+#   https://new.land.naver.com/complexes?ms=<lat>,<lon>,<zoom>&a=APT:PRE:ABYG:JGC&e=RETAIL
+# 그래도 이 값은 폴백일 뿐이고, --from-har / --from-curl 을 쓰면 실제 요청
+# URL에서 오리진을 읽어 쓴다. 주소를 코드가 알고 있다고 가정하지 않는다.
+DEFAULT_BASE = "https://new.land.naver.com"
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
