@@ -21,6 +21,7 @@ import json
 import os
 import random
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -133,6 +134,45 @@ class Creds(NamedTuple):
     token: str
     cookie: str
     base: str
+
+    def __repr__(self) -> str:
+        # 쿠키에는 로그인 세션이 들어 있다. 실수로 화면이나 로그에 남지 않도록
+        # 있으면 있다는 사실만 보인다.
+        return (
+            f"Creds(token={'있음' if self.token else '없음'}, "
+            f"cookie={'있음' if self.cookie else '없음'}, base={self.base!r})"
+        )
+
+
+CLIPBOARD_CMDS = (["pbpaste"], ["wl-paste"], ["xclip", "-o", "-selection", "clipboard"])
+
+
+def cookie_from_clipboard() -> str:
+    """클립보드에서 쿠키를 직접 읽는다.
+
+    쿠키를 명령줄 인자로 넘기면 화면과 셸 기록에 그대로 남는다. 네이버 쿠키에는
+    로그인 세션(NID_SES)이 들어 있어서 그건 계정 열쇠를 흘리는 것과 같다.
+    클립보드에서 바로 읽으면 어디에도 남지 않는다.
+    """
+    for cmd in CLIPBOARD_CMDS:
+        try:
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        except (FileNotFoundError, OSError, subprocess.SubprocessError):
+            continue
+        text = done.stdout.strip() if done.returncode == 0 else ""
+        if not text:
+            continue
+        if "=" not in text:
+            raise TokenError(
+                "클립보드 내용이 쿠키처럼 보이지 않습니다.\n"
+                "브라우저 콘솔에서  copy(document.cookie)  를 먼저 실행해 주세요."
+            )
+        return text
+
+    raise TokenError(
+        "클립보드를 읽지 못했습니다. --cookie-file <파일> 을 쓰거나,\n"
+        "쿠키를 파일로 저장한 뒤 그 경로를 넘겨 주세요."
+    )
 
 
 def token_from_curl(path: str) -> Creds:
@@ -255,19 +295,32 @@ def token_from_har(path: str) -> Creds:
     return Creds(best["auth"].strip(), best["cookie"].strip(), f"{parts.scheme}://{parts.netloc}")
 
 
+def load_cookie(args: argparse.Namespace) -> str:
+    if args.cookie_clipboard:
+        return cookie_from_clipboard()
+    if args.cookie_file:
+        with open(args.cookie_file, "r", encoding="utf-8") as fh:
+            return fh.read().strip()
+    return args.cookie or os.environ.get("NAVER_LAND_COOKIE", "").strip()
+
+
 def load_auth(args: argparse.Namespace) -> Creds:
     # 토큰 문자열 직접 지정. HAR/cURL 파일을 못 만드는 상황을 위한 경로라
     # 다른 어떤 방식보다 먼저 본다.
+    cookie = load_cookie(args)
+
     if args.token:
         token = args.token.strip().strip("'\"")
         if not token.lower().startswith("bearer "):
             token = f"Bearer {token}"
         base = args.base or os.environ.get("NAVER_LAND_BASE", "").strip() or DEFAULT_BASE
-        return Creds(token, args.cookie or "", base)
+        return Creds(token, cookie, base)
 
     if args.from_har:
         creds = token_from_har(args.from_har)
-        return creds._replace(base=args.base) if args.base else creds
+        if args.base:
+            creds = creds._replace(base=args.base)
+        return creds._replace(cookie=cookie) if cookie else creds
 
     if args.from_curl:
         creds = token_from_curl(args.from_curl)
@@ -279,11 +332,14 @@ def load_auth(args: argparse.Namespace) -> Creds:
     if token:
         if not token.lower().startswith("bearer "):
             token = f"Bearer {token}"
-        return Creds(token, os.environ.get("NAVER_LAND_COOKIE", "").strip(), base)
+        return Creds(token, cookie, base)
+
+    if cookie:
+        return Creds("", cookie, base)
 
     # 토큰 없이 그냥 해본다. 브라우저에서 확인해 보니 이 API는 Authorization
     # 헤더 없이도 응답한다. 인증을 요구할 때만 401이 나고, 그때 안내하면 된다.
-    print("쿠키 없이 시도합니다. 429가 나오면 --cookie 로 쿠키를 넘겨 주세요.", file=sys.stderr)
+    print("쿠키 없이 시도합니다. 429가 나오면 --cookie-clipboard 를 붙여 주세요.", file=sys.stderr)
     return Creds("", os.environ.get("NAVER_LAND_COOKIE", "").strip(), base)
 
 
@@ -375,11 +431,12 @@ class Client:
                         raise TokenError(
                             "HTTP 429 — 요청이 거부됐습니다. 세션 쿠키가 없어서\n"
                             "자동 수집으로 걸러진 것으로 보입니다.\n\n"
-                            "브라우저에서 지도 화면을 연 채로 콘솔(⌥⌘I → Console)에\n"
-                            "  copy(document.cookie)\n"
-                            "를 입력하면 쿠키가 클립보드에 복사됩니다. 그걸\n"
-                            "  --cookie '붙여넣기'\n"
-                            "로 넘겨 주세요."
+                            "1) 브라우저 지도 화면의 콘솔(⌥⌘I → Console)에서\n"
+                            "     copy(document.cookie)\n"
+                            "2) 터미널에서 같은 명령에 --cookie-clipboard 만 덧붙이세요.\n"
+                            "   클립보드에서 바로 읽으므로 붙여넣을 필요가 없습니다.\n\n"
+                            "쿠키에는 네이버 로그인 세션이 들어 있습니다. 화면에 붙여넣거나\n"
+                            "남에게 보내지 마세요."
                         ) from exc
                     back = 10 * (2**attempt)
                     print(f"  429 — {back}초 대기 후 재시도", file=sys.stderr)
@@ -956,8 +1013,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Bearer 토큰 문자열 직접 지정 (파일 없이 실행)",
     )
     common.add_argument(
+        "--cookie-clipboard", action="store_true", default=argparse.SUPPRESS,
+        help="클립보드에서 쿠키를 읽는다. 화면·셸 기록에 남지 않아 가장 안전 (권장)",
+    )
+    common.add_argument(
+        "--cookie-file", metavar="FILE", default=argparse.SUPPRESS,
+        help="쿠키가 저장된 파일 경로",
+    )
+    common.add_argument(
         "--cookie", metavar="STR", default=argparse.SUPPRESS,
-        help="쿠키 문자열. 보통 없어도 된다",
+        help="쿠키 문자열 직접 지정. 셸 기록에 남으므로 권장하지 않는다",
     )
     common.add_argument(
         "--from-har", metavar="FILE", default=argparse.SUPPRESS,
@@ -1027,7 +1092,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-COMMON_DEFAULTS = {"token": None, "cookie": None, "from_curl": None, "from_har": None, "base": None, "delay": 2.0, "out": "out", "verbose": False}
+COMMON_DEFAULTS = {"token": None, "cookie": None, "cookie_clipboard": False, "cookie_file": None, "from_curl": None, "from_har": None, "base": None, "delay": 2.0, "out": "out", "verbose": False}
 
 
 def apply_defaults(args: argparse.Namespace) -> argparse.Namespace:
