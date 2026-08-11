@@ -29,11 +29,12 @@ import urllib.request
 from datetime import datetime
 from typing import Any, Iterable, NamedTuple
 
-# 페이지와 API의 호스트가 다르다. 화면은 new.land.naver.com 이 그리고,
-# 데이터는 fin.land.naver.com 의 front-api 가 준다.
-#   페이지: https://new.land.naver.com/complexes?ms=<lat>,<lon>,<zoom>&a=APT:...&e=RETAIL
-#   API   : https://fin.land.naver.com/front-api/v1/...
-PAGE_BASE = "https://new.land.naver.com"
+# 지도 화면과 API가 같은 호스트다. new.land.naver.com 은 여기로 넘겨주는
+# 옛 주소일 뿐이라, Origin/Referer 를 그쪽으로 보내면 교차 출처 요청이 되어
+# 거부당한다(429). 광고 요청에 실려 있던 페이지 주소가 근거:
+#   url=https://fin.land.naver.com/map?center=...&zoom=...&tradeTypes=B1-B2
+PAGE_BASE = "https://fin.land.naver.com"
+MAP_PAGE = "https://fin.land.naver.com/map"
 DEFAULT_BASE = "https://fin.land.naver.com"
 
 # 브라우저 XHR 로그에서 그대로 확인한 엔드포인트.
@@ -282,7 +283,7 @@ def load_auth(args: argparse.Namespace) -> Creds:
 
     # 토큰 없이 그냥 해본다. 브라우저에서 확인해 보니 이 API는 Authorization
     # 헤더 없이도 응답한다. 인증을 요구할 때만 401이 나고, 그때 안내하면 된다.
-    print("토큰 없이 시도합니다. 401이 나오면 --cookie 로 쿠키를 넘겨 보세요.", file=sys.stderr)
+    print("쿠키 없이 시도합니다. 429가 나오면 --cookie 로 쿠키를 넘겨 주세요.", file=sys.stderr)
     return Creds("", os.environ.get("NAVER_LAND_COOKIE", "").strip(), base)
 
 
@@ -290,7 +291,7 @@ def load_auth(args: argparse.Namespace) -> Creds:
 
 
 class Client:
-    def __init__(self, creds: Creds, delay: float = 1.5, verbose: bool = False):
+    def __init__(self, creds: Creds, delay: float = 2.0, verbose: bool = False):
         self.token = creds.token
         self.cookie = creds.cookie
         self.base = creds.base
@@ -328,11 +329,16 @@ class Client:
 
         headers = {
             "User-Agent": UA,
-            "Accept": "*/*",
+            "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip",
-            "Accept-Language": "ko-KR,ko;q=0.9",
-            "Referer": referer or f"{PAGE_BASE}/complexes",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Referer": referer or MAP_PAGE,
             "Origin": PAGE_BASE,
+            # 같은 출처의 XHR 임을 알린다. 브라우저가 자동으로 붙이는 값들이라
+            # 빠지면 정상 트래픽으로 보이지 않는다.
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
         }
         if payload is not None:
             headers["Content-Type"] = "application/json"
@@ -363,8 +369,20 @@ class Client:
                         "  --cookie 'NNB=...; NAC=...'  형태로 넘겨 보세요."
                     ) from exc
                 if exc.code == 429:
-                    back = 5 * (2**attempt)
-                    print(f"  429 rate limited, {back}s 대기", file=sys.stderr)
+                    if not self.cookie:
+                        # 첫 요청부터 429면 혼잡이 아니라 봇으로 걸러진 것이다.
+                        # 세션 쿠키 없이는 재시도해도 계속 막힌다.
+                        raise TokenError(
+                            "HTTP 429 — 요청이 거부됐습니다. 세션 쿠키가 없어서\n"
+                            "자동 수집으로 걸러진 것으로 보입니다.\n\n"
+                            "브라우저에서 지도 화면을 연 채로 콘솔(⌥⌘I → Console)에\n"
+                            "  copy(document.cookie)\n"
+                            "를 입력하면 쿠키가 클립보드에 복사됩니다. 그걸\n"
+                            "  --cookie '붙여넣기'\n"
+                            "로 넘겨 주세요."
+                        ) from exc
+                    back = 10 * (2**attempt)
+                    print(f"  429 — {back}초 대기 후 재시도", file=sys.stderr)
                     time.sleep(back)
                     last_err = exc
                     continue
@@ -489,7 +507,7 @@ def fetch_articles(
     """단지 하나의 매물을 전부 긁는다. (정규화 결과, 원본) 튜플 반환."""
     normalized: list[dict] = []
     raw: list[dict] = []
-    referer = f"{PAGE_BASE}/complexes/{complex_no}"
+    referer = f"{MAP_PAGE}?complexNumber={complex_no}"
 
     for page in range(1, max_pages + 1):
         data = client.get(
@@ -738,7 +756,7 @@ def collect_asking_row(
         "최저가": pick(ask, "minPrice", "minDealPrice", "lowPrice"),
         "최고가": pick(ask, "maxPrice", "maxDealPrice", "highPrice"),
         "매물수": pick(ask, "count", "articleCount", "totalCount"),
-        "링크": f"{PAGE_BASE}/complexes/{complex_no}",
+        "링크": f"{MAP_PAGE}?complexNumber={complex_no}",
     }
 
 
@@ -794,7 +812,7 @@ def complex_get(client: Client, key: str, complex_no: str, **extra: Any) -> Any:
     params: dict[str, Any] = {"complexNumber": complex_no}
     params.update(extra)
     return client.get(COMPLEX_ENDPOINTS[key], params,
-                      referer=f"{PAGE_BASE}/complexes/{complex_no}")
+                      referer=f"{MAP_PAGE}?complexNumber={complex_no}")
 
 
 def cmd_complex(args: argparse.Namespace, client: Client) -> int:
@@ -952,7 +970,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     common.add_argument(
         "--delay", type=float, default=argparse.SUPPRESS,
-        help="요청 간 최소 간격(초), 기본 1.5",
+        help="요청 간 최소 간격(초), 기본 2.0",
     )
     common.add_argument(
         "--out", default=argparse.SUPPRESS, help="출력 디렉터리, 기본 out/",
@@ -1009,7 +1027,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-COMMON_DEFAULTS = {"token": None, "cookie": None, "from_curl": None, "from_har": None, "base": None, "delay": 1.5, "out": "out", "verbose": False}
+COMMON_DEFAULTS = {"token": None, "cookie": None, "from_curl": None, "from_har": None, "base": None, "delay": 2.0, "out": "out", "verbose": False}
 
 
 def apply_defaults(args: argparse.Namespace) -> argparse.Namespace:
