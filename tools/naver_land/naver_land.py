@@ -201,6 +201,15 @@ def token_from_har(path: str) -> Creds:
 
 
 def load_auth(args: argparse.Namespace) -> Creds:
+    # 토큰 문자열 직접 지정. HAR/cURL 파일을 못 만드는 상황을 위한 경로라
+    # 다른 어떤 방식보다 먼저 본다.
+    if args.token:
+        token = args.token.strip().strip("'\"")
+        if not token.lower().startswith("bearer "):
+            token = f"Bearer {token}"
+        base = args.base or os.environ.get("NAVER_LAND_BASE", "").strip() or DEFAULT_BASE
+        return Creds(token, args.cookie or "", base)
+
     if args.from_har:
         creds = token_from_har(args.from_har)
         return creds._replace(base=args.base) if args.base else creds
@@ -674,12 +683,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="DevTools 'Copy as cURL' 덤프 파일",
     )
     common.add_argument(
+        "--token", metavar="STR", default=argparse.SUPPRESS,
+        help="Bearer 토큰 문자열 직접 지정 (파일 없이 실행)",
+    )
+    common.add_argument(
+        "--cookie", metavar="STR", default=argparse.SUPPRESS,
+        help="쿠키 문자열. 보통 없어도 된다",
+    )
+    common.add_argument(
         "--from-har", metavar="FILE", default=argparse.SUPPRESS,
-        help="DevTools Network 탭에서 내려받은 .har 파일 (가장 쉬움)",
+        help="DevTools Network 탭에서 내려받은 .har 파일",
     )
     common.add_argument(
         "--base", metavar="URL", default=argparse.SUPPRESS,
-        help="API 오리진 직접 지정 (예: https://fin.land.naver.com). "
+        help="API 오리진 직접 지정 (예: https://new.land.naver.com). "
              "--from-curl 을 쓰면 덤프에서 자동으로 읽으므로 보통 불필요",
     )
     common.add_argument(
@@ -732,7 +749,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-COMMON_DEFAULTS = {"from_curl": None, "from_har": None, "base": None, "delay": 1.5, "out": "out", "verbose": False}
+COMMON_DEFAULTS = {"token": None, "cookie": None, "from_curl": None, "from_har": None, "base": None, "delay": 1.5, "out": "out", "verbose": False}
 
 
 def apply_defaults(args: argparse.Namespace) -> argparse.Namespace:
