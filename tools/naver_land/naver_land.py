@@ -115,7 +115,75 @@ def token_from_curl(path: str) -> Creds:
     )
 
 
+# HAR 안에는 광고/트래킹 요청이 잔뜩 섞여 있다. 부동산 API 요청만 골라내는 기준.
+API_HINTS = ("land.naver.com", "/api/", "/front-api/", "article", "complex", "cortar")
+NOISE_HINTS = ("gfp-display", "gfp-core", "doubleclick", "google", "adcr", "nlog", "wcslog")
+
+
+def har_entries(path: str) -> list[dict]:
+    """HAR 파일에서 부동산 API로 보이는 요청만 추려낸다.
+
+    'Copy as cURL' 은 사용자가 목록에서 맞는 요청을 직접 찾아야 하는데,
+    광고/트래킹 요청에 파묻혀 있어 실패하기 쉽다. HAR 은 Network 탭의
+    내려받기 버튼 한 번이면 전부 나오므로, 고르는 일을 코드가 대신한다.
+    """
+    with open(path, "r", encoding="utf-8") as fh:
+        har = json.load(fh)
+
+    out = []
+    for entry in har.get("log", {}).get("entries", []):
+        req = entry.get("request", {})
+        url = req.get("url", "")
+        low = url.lower()
+        if any(n in low for n in NOISE_HINTS):
+            continue
+        if not any(h in low for h in API_HINTS):
+            continue
+
+        headers = {h.get("name", "").lower(): h.get("value", "") for h in req.get("headers", [])}
+        out.append(
+            {
+                "url": url,
+                "method": req.get("method", "GET"),
+                "status": entry.get("response", {}).get("status"),
+                "auth": headers.get("authorization", ""),
+                "cookie": headers.get("cookie", ""),
+            }
+        )
+    return out
+
+
+def token_from_har(path: str) -> Creds:
+    entries = har_entries(path)
+    if not entries:
+        raise TokenError(
+            f"{path} 에서 부동산 API 요청을 못 찾았습니다.\n"
+            "홈 화면이 아니라 아파트 단지를 클릭해서 매물 목록이 뜬 뒤에\n"
+            "HAR 을 내려받아 주세요. (홈 화면 요청은 광고/추천 위젯뿐입니다)"
+        )
+
+    authed = [e for e in entries if e["auth"].lower().startswith("bearer")]
+    if not authed:
+        raise TokenError(
+            f"{path} 에 부동산 API 요청은 {len(entries)}건 있는데 "
+            "Authorization 헤더가 붙은 건 없습니다.\n"
+            f"  python3 {os.path.basename(__file__)} inspect --from-har {path}\n"
+            "로 어떤 요청들이 잡혔는지 확인해 주세요."
+        )
+
+    # 매물 목록 요청을 우선 고른다. 같은 오리진이면 토큰은 어차피 같지만,
+    # 이 선택이 곧 아래 inspect 출력의 기준이 된다.
+    authed.sort(key=lambda e: ("article" not in e["url"].lower(), len(e["url"])))
+    best = authed[0]
+    parts = urllib.parse.urlsplit(best["url"])
+    return Creds(best["auth"].strip(), best["cookie"].strip(), f"{parts.scheme}://{parts.netloc}")
+
+
 def load_auth(args: argparse.Namespace) -> Creds:
+    if args.from_har:
+        creds = token_from_har(args.from_har)
+        return creds._replace(base=args.base) if args.base else creds
+
     if args.from_curl:
         creds = token_from_curl(args.from_curl)
         # 명시적 --base 는 덤프에서 읽은 값보다 우선한다.
@@ -130,12 +198,13 @@ def load_auth(args: argparse.Namespace) -> Creds:
 
     raise TokenError(
         "토큰이 없습니다.\n"
-        "  1) 브라우저에서 네이버페이 부동산 접속 (검색창에 '네이버 부동산')\n"
-        "  2) 아파트 단지를 하나 클릭해서 매물 목록이 뜨게 함\n"
-        "  3) DevTools > Network > Fetch/XHR > 요청 하나 우클릭 > Copy as cURL\n"
-        "  4) 그 내용을 파일로 저장하고  --from-curl <파일>  로 넘기면\n"
-        "     토큰과 도메인을 알아서 읽습니다. (권장)\n"
-        "     또는  export NAVER_LAND_TOKEN='Bearer eyJ...'  +  --base <도메인>\n"
+        "  1) 브라우저에서 네이버페이 부동산 접속\n"
+        "  2) 아파트 단지를 하나 클릭해서 매물 목록이 뜨게 함 (홈 화면만으론 안 됨)\n"
+        "  3) DevTools > Network 탭 툴바의 아래쪽 화살표(⬇)를 눌러 .har 저장\n"
+        "  4) --from-har <파일> 로 넘기면 토큰/도메인/쿠키를 알아서 찾습니다.\n"
+        "\n"
+        "     맞는 요청을 직접 고르고 싶으면 요청 우클릭 > Copy as cURL 후\n"
+        "     --from-curl <파일> 도 됩니다.\n"
     )
 
 
@@ -532,6 +601,42 @@ def cmd_run(args: argparse.Namespace, client: Client) -> int:
     return 0
 
 
+def cmd_inspect(args: argparse.Namespace) -> int:
+    """HAR 안에서 발견한 부동산 API 요청을 보여준다. 인증이 필요 없다.
+
+    토큰과 쿠키는 일부러 찍지 않는다. 이 출력은 그대로 공유해도 안전해야 한다.
+    """
+    if not args.from_har:
+        print("inspect 는 --from-har <파일> 이 필요합니다.", file=sys.stderr)
+        return 2
+
+    entries = har_entries(args.from_har)
+    if not entries:
+        print(
+            f"{args.from_har} 에서 부동산 API 요청을 못 찾았습니다.\n"
+            "홈 화면이 아니라 아파트 단지를 클릭해서 매물 목록이 뜬 뒤에\n"
+            "HAR 을 내려받아 주세요.",
+            file=sys.stderr,
+        )
+        return 1
+
+    seen: set[str] = set()
+    print(f"\n부동산 API 요청 {len(entries)}건\n")
+    for e in entries:
+        parts = urllib.parse.urlsplit(e["url"])
+        key = f"{e['method']} {parts.netloc}{parts.path}"
+        if key in seen:
+            continue
+        seen.add(key)
+        lock = "🔑" if e["auth"] else "  "
+        print(f"{lock} [{e['status']}] {key}")
+        if parts.query:
+            for kv in parts.query.split("&"):
+                print(f"      {kv}")
+    print("\n🔑 = Authorization 헤더가 붙은 요청. 토큰/쿠키 값은 출력하지 않습니다.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     # 공통 플래그를 부모 파서에 두고 하위 명령에도 물려줘서
     # `--from-curl x run` 과 `run --from-curl x` 가 둘 다 되게 한다.
@@ -540,6 +645,10 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--from-curl", metavar="FILE", default=argparse.SUPPRESS,
         help="DevTools 'Copy as cURL' 덤프 파일",
+    )
+    common.add_argument(
+        "--from-har", metavar="FILE", default=argparse.SUPPRESS,
+        help="DevTools Network 탭에서 내려받은 .har 파일 (가장 쉬움)",
     )
     common.add_argument(
         "--base", metavar="URL", default=argparse.SUPPRESS,
@@ -585,6 +694,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--trade", nargs="+", default=["B1", "B2"], choices=list(TRADE_TYPES))
     r.set_defaults(func=cmd_run)
 
+    i = sub.add_parser("inspect", parents=[common], help="HAR 안의 API 요청 확인 (인증 불필요)")
+    i.set_defaults(func=None)
+
     f = sub.add_parser("fetch", parents=[common], help="complexNo 직접 지정해서 수집")
     f.add_argument("--complex", nargs="+", required=True, help="단지 번호(들)")
     f.add_argument("--trade", nargs="+", default=["B1"], choices=list(TRADE_TYPES))
@@ -593,7 +705,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-COMMON_DEFAULTS = {"from_curl": None, "base": None, "delay": 1.5, "out": "out", "verbose": False}
+COMMON_DEFAULTS = {"from_curl": None, "from_har": None, "base": None, "delay": 1.5, "out": "out", "verbose": False}
 
 
 def apply_defaults(args: argparse.Namespace) -> argparse.Namespace:
@@ -605,6 +717,16 @@ def apply_defaults(args: argparse.Namespace) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = apply_defaults(build_parser().parse_args(argv))
+
+    # inspect 는 토큰 없이도 돌아야 한다. 토큰을 못 구했을 때 쓰는 진단 명령이라
+    # 여기서 인증을 요구하면 순서가 거꾸로다.
+    if args.cmd == "inspect":
+        try:
+            return cmd_inspect(args)
+        except (TokenError, RuntimeError) as exc:
+            print(f"\n{exc}", file=sys.stderr)
+            return 1
+
     try:
         creds = load_auth(args)
     except TokenError as exc:

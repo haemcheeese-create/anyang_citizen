@@ -15,31 +15,42 @@
 
 의존성 없음. Python 3.9+ 면 된다.
 
-### 1. 토큰 받기
+### 1. 토큰 받기 — HAR 통째로 내보내기 (권장)
 
 공식 API가 아니라서 브라우저가 발급받은 Bearer 토큰을 빌려 쓴다.
+요청을 하나 골라내는 것보다 **전부 내보내고 코드가 고르게 하는 쪽**이 쉽고 안 깨진다.
 
-1. 브라우저에서 네이버페이 부동산 접속 (네이버에 "네이버 부동산" 검색 → 첫 결과)
+1. 브라우저에서 네이버페이 부동산 접속
 2. DevTools 열기 — **맥은 F12가 아니라 ⌥⌘I**, 또는 우클릭 → **검사**
    (윈도우/리눅스는 F12)
 3. **Network** 탭 → 필터 줄에서 **Fetch/XHR**
-4. **DevTools를 열어둔 채로** 아파트 단지를 하나 클릭 — 이때부터 요청이 잡힌다.
-   열기 전에 오간 요청은 목록에 안 남는다.
-5. 매물 목록을 불러오는 요청(이름에 `article` / `complex` 가 들어간 것) 우클릭 →
-   **Copy → Copy as cURL** (한글판은 **복사 → cURL로 복사**)
-6. 붙여넣어서 파일로 저장 (예: `curl.txt`)
+4. **DevTools를 열어둔 채로** 검색창에 단지명(예: `평촌동 초원세경`)을 넣고
+   **아파트 단지 상세로 들어가 매물 목록이 뜨게 한다.**
+   홈 화면에서는 광고·추천 위젯 요청(`airsList.naver`, `gfp-display-sdk` 등)만
+   잡히고 매물 API는 나오지 않는다.
+5. Network 툴바의 **아래쪽 화살표(⬇, Export HAR)** 클릭 → `naver.har` 로 저장
 
-제대로 복사했는지 먼저 확인:
+무엇이 잡혔는지 먼저 확인 (토큰 없이 동작하고, 토큰·쿠키 값은 찍지 않으므로
+그대로 공유해도 안전하다):
+
+```bash
+python3 naver_land.py inspect --from-har naver.har
+```
+
+`🔑` 가 붙은 줄이 하나라도 보이면 준비 끝:
+
+```bash
+python3 naver_land.py run --from-har naver.har
+```
+
+### 대안: Copy as cURL
+
+맞는 요청을 직접 고르고 싶다면, 매물 목록 요청(이름에 `article` / `complex`)을
+우클릭 → **Copy → Copy as cURL** (한글판 **복사 → cURL로 복사**) 후 파일로 저장:
 
 ```bash
 python3 -c "import naver_land; print(naver_land.token_from_curl('curl.txt'))"
-```
-
-`Creds(token='Bearer eyJ...', cookie='NNB=...', base='https://...')` 처럼
-세 개가 다 나오면 된다.
-
-```bash
-python naver_land.py --from-curl curl.txt run
+python3 naver_land.py run --from-curl curl.txt
 ```
 
 토큰만 따로 쓰고 싶으면 환경변수로 넘겨도 되는데, 이때는 도메인을 자동으로
@@ -50,11 +61,18 @@ export NAVER_LAND_TOKEN='Bearer eyJ...'
 python naver_land.py --base https://fin.land.naver.com run
 ```
 
-**토큰은 대략 하루 안팎으로 만료된다.** `HTTP 401` 이 뜨면 위 5~6단계를 다시 하면 된다.
+**토큰은 대략 하루 안팎으로 만료된다.** `HTTP 401` 이 뜨면 HAR을 다시 받으면 된다.
+
+> `.har` 파일에는 **로그인 세션 쿠키와 토큰이 그대로 들어 있다.** 남에게 보내거나
+> 저장소에 커밋하지 말 것. (`.gitignore` 에 넣어뒀다.) 공유가 필요하면 위의
+> `inspect` 출력을 보내면 된다 — 그쪽은 URL만 찍는다.
 
 ## 사용
 
 ```bash
+# HAR 안에 어떤 API 요청이 잡혔는지 확인 (인증 불필요)
+python naver_land.py inspect --from-har naver.har
+
 # 프리셋 전체 — 평안동(초원·향촌마을) + 범계동(목련마을), 전세+월세
 python naver_land.py run
 
