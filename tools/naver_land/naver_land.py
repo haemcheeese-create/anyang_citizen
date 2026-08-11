@@ -226,16 +226,10 @@ def load_auth(args: argparse.Namespace) -> Creds:
             token = f"Bearer {token}"
         return Creds(token, os.environ.get("NAVER_LAND_COOKIE", "").strip(), base)
 
-    raise TokenError(
-        "토큰이 없습니다.\n"
-        "  1) 브라우저에서 네이버페이 부동산 접속\n"
-        "  2) 아파트 단지를 하나 클릭해서 매물 목록이 뜨게 함 (홈 화면만으론 안 됨)\n"
-        "  3) DevTools > Network 탭 툴바의 아래쪽 화살표(⬇)를 눌러 .har 저장\n"
-        "  4) --from-har <파일> 로 넘기면 토큰/도메인/쿠키를 알아서 찾습니다.\n"
-        "\n"
-        "     맞는 요청을 직접 고르고 싶으면 요청 우클릭 > Copy as cURL 후\n"
-        "     --from-curl <파일> 도 됩니다.\n"
-    )
+    # 토큰 없이 그냥 해본다. 브라우저에서 확인해 보니 이 API는 Authorization
+    # 헤더 없이도 응답한다. 인증을 요구할 때만 401이 나고, 그때 안내하면 된다.
+    print("토큰 없이 시도합니다. 401이 나오면 --cookie 로 쿠키를 넘겨 보세요.", file=sys.stderr)
+    return Creds("", os.environ.get("NAVER_LAND_COOKIE", "").strip(), base)
 
 
 # ---------------------------------------------------------------- HTTP
@@ -265,13 +259,14 @@ class Client:
             url = f"{url}?{urllib.parse.urlencode(params)}"
 
         headers = {
-            "Authorization": self.token,
             "User-Agent": UA,
             "Accept": "*/*",
             "Accept-Encoding": "gzip",
             "Accept-Language": "ko-KR,ko;q=0.9",
             "Referer": referer or f"{self.base}/complexes",
         }
+        if self.token:
+            headers["Authorization"] = self.token
         if self.cookie:
             headers["Cookie"] = self.cookie
 
@@ -290,8 +285,9 @@ class Client:
             except urllib.error.HTTPError as exc:
                 if exc.code in (401, 403):
                     raise TokenError(
-                        f"HTTP {exc.code} — 토큰이 만료됐거나 거부됐습니다. "
-                        "브라우저에서 토큰을 다시 복사해 주세요. (보통 하루 안팎으로 만료)"
+                        f"HTTP {exc.code} — 인증이 거부됐습니다.\n"
+                        "이 API는 보통 토큰 없이도 응답하는데, 막힌다면 로그인 쿠키가 필요합니다.\n"
+                        "  --cookie 'NNB=...; NAC=...'  형태로 넘겨 보세요."
                     ) from exc
                 if exc.code == 429:
                     back = 5 * (2**attempt)
