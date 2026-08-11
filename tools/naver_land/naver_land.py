@@ -120,6 +120,22 @@ API_HINTS = ("land.naver.com", "/api/", "/front-api/", "article", "complex", "co
 NOISE_HINTS = ("gfp-display", "gfp-core", "doubleclick", "google", "adcr", "nlog", "wcslog")
 
 
+EMPTY_HAR_HELP = (
+    "HAR에 기록된 요청이 0건입니다. 브라우저가 아무것도 안 받은 상태로 저장된 겁니다.\n"
+    "흔한 원인:\n"
+    "  · 404 같은 오류 페이지에서 저장했다 (그 페이지는 요청을 안 보냅니다)\n"
+    "  · DevTools를 연 뒤 페이지에서 아무 동작도 안 했다\n"
+    "    → Network 탭을 연 채로 새로고침(⌘R)하거나 단지를 클릭한 뒤 저장하세요\n"
+    "  · 왼쪽 위 빨간 ⏺ 버튼이 꺼져 있어 기록이 멈춰 있었다"
+)
+
+
+def har_total(path: str) -> int:
+    """HAR에 기록된 전체 요청 수. 0이면 애초에 아무것도 안 잡힌 것이다."""
+    with open(path, "r", encoding="utf-8") as fh:
+        return len(json.load(fh).get("log", {}).get("entries", []))
+
+
 def har_entries(path: str) -> list[dict]:
     """HAR 파일에서 부동산 API로 보이는 요청만 추려낸다.
 
@@ -156,8 +172,11 @@ def har_entries(path: str) -> list[dict]:
 def token_from_har(path: str) -> Creds:
     entries = har_entries(path)
     if not entries:
+        total = har_total(path)
+        if total == 0:
+            raise TokenError(f"{path}\n{EMPTY_HAR_HELP}")
         raise TokenError(
-            f"{path} 에서 부동산 API 요청을 못 찾았습니다.\n"
+            f"{path} 에 요청은 {total}건 기록됐는데 그 중 부동산 API는 없습니다.\n"
             "홈 화면이 아니라 아파트 단지를 클릭해서 매물 목록이 뜬 뒤에\n"
             "HAR 을 내려받아 주세요. (홈 화면 요청은 광고/추천 위젯뿐입니다)"
         )
@@ -610,15 +629,21 @@ def cmd_inspect(args: argparse.Namespace) -> int:
         print("inspect 는 --from-har <파일> 이 필요합니다.", file=sys.stderr)
         return 2
 
+    total = har_total(args.from_har)
     entries = har_entries(args.from_har)
     if not entries:
-        print(
-            f"{args.from_har} 에서 부동산 API 요청을 못 찾았습니다.\n"
-            "홈 화면이 아니라 아파트 단지를 클릭해서 매물 목록이 뜬 뒤에\n"
-            "HAR 을 내려받아 주세요.",
-            file=sys.stderr,
-        )
+        if total == 0:
+            print(f"{args.from_har}\n{EMPTY_HAR_HELP}", file=sys.stderr)
+        else:
+            print(
+                f"{args.from_har} 에 요청은 {total}건 기록됐는데 "
+                "그 중 부동산 API는 없습니다.\n"
+                "홈 화면이 아니라 아파트 단지를 클릭해서 매물 목록이 뜬 뒤에\n"
+                "HAR 을 내려받아 주세요.",
+                file=sys.stderr,
+            )
         return 1
+    print(f"\n전체 기록 {total}건 중 부동산 API로 보이는 요청만 추립니다.", file=sys.stderr)
 
     seen: set[str] = set()
     print(f"\n부동산 API 요청 {len(entries)}건\n")
