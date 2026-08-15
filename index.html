@@ -7,18 +7,45 @@
   <style>
     @font-face {
       font-family: 'Paperlogy';
+      src: url('Paperlogy-1Thin.ttf') format('truetype');
+      font-weight: 100;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Paperlogy';
+      src: url('Paperlogy-2ExtraLight.ttf') format('truetype');
+      font-weight: 200;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Paperlogy';
+      src: url('Paperlogy-3Light.ttf') format('truetype');
+      font-weight: 300;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Paperlogy';
       src: url('Paperlogy-4Regular.ttf') format('truetype');
       font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Paperlogy';
+      src: url('Paperlogy-5Medium.ttf') format('truetype');
+      font-weight: 500;
+      font-display: swap;
     }
     @font-face {
       font-family: 'Paperlogy';
       src: url('Paperlogy-7Bold.ttf') format('truetype');
       font-weight: 700;
+      font-display: swap;
     }
     @font-face {
       font-family: 'Paperlogy';
       src: url('Paperlogy-9Black.ttf') format('truetype');
       font-weight: 900;
+      font-display: swap;
     }
 
     :root {
@@ -31,8 +58,10 @@
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    button, input, textarea, select { font: inherit; }
+
     body {
-      font-family: 'Paperlogy', sans-serif;
+      font-family: 'Paperlogy', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
       font-weight: 400;
       background: var(--navy);
       color: var(--white);
@@ -80,7 +109,6 @@
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 
     .hero-title {
-      font-family: 'Paperlogy', sans-serif;
       font-size: clamp(2.4rem, 7vw, 3.8rem);
       font-weight: 900; line-height: 1.15; letter-spacing: -.02em; color: #fff; margin-bottom: 6px;
     }
@@ -93,7 +121,7 @@
 
     .cta-text {
       position: relative; text-align: center;
-      font-family: 'Paperlogy', sans-serif; font-weight: 700;
+      font-weight: 700;
       font-size: clamp(1.05rem, 3.2vw, 1.3rem); line-height: 1.6;
       color: #fff; letter-spacing: -.01em;
       margin: 0 0 26px; padding-top: 30px;
@@ -129,14 +157,14 @@
       display: flex; align-items: center; justify-content: center;
       font-size: 20px; flex-shrink: 0; box-shadow: 0 4px 16px rgba(26,111,196,.4);
     }
-    .card-title { font-family: 'Paperlogy', sans-serif; font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; color: #fff; }
+    .card-title { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; color: #fff; }
 
     .account-box {
       background: linear-gradient(135deg, rgba(26,111,196,.25), rgba(90,180,240,.12));
       border: 1px solid rgba(90,180,240,.35); border-radius: 14px; padding: 24px 28px; text-align: center;
     }
-    .account-bank { font-size: .82rem; color: var(--sky); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 8px; }
-    .account-number { font-family: 'Paperlogy', sans-serif; font-size: clamp(1.2rem, 4vw, 1.8rem); font-weight: 700; letter-spacing: .04em; color: #fff; margin-bottom: 10px; }
+    .account-bank { font-size: .82rem; font-weight: 500; color: var(--sky); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 8px; }
+    .account-number { font-size: clamp(1.2rem, 4vw, 1.8rem); font-weight: 700; letter-spacing: .04em; color: #fff; margin-bottom: 10px; }
     .account-name { font-size: .88rem; color: rgba(255,255,255,.6); }
 
     .copy-btn {
@@ -144,7 +172,7 @@
       margin-top: 18px; padding: 10px 24px;
       background: linear-gradient(90deg, var(--blue), var(--sky));
       border: none; border-radius: 100px;
-      color: #fff; font-family: 'Paperlogy', sans-serif;
+      color: #fff;
       font-size: .88rem; font-weight: 700; cursor: pointer;
       transition: opacity .2s, transform .2s;
     }
@@ -156,7 +184,7 @@
       display: flex; gap: 14px; align-items: flex-start;
       padding: 14px 16px; background: rgba(255,255,255,.04);
       border-radius: 12px; border-left: 3px solid var(--sky);
-      font-size: .92rem; line-height: 1.6; color: rgba(255,255,255,.85); transition: background .2s;
+      font-size: .92rem; font-weight: 500; line-height: 1.6; color: rgba(255,255,255,.85); transition: background .2s;
     }
     .info-list li:hover { background: rgba(90,180,240,.08); }
     .info-list li .num {
@@ -168,17 +196,17 @@
 
     .tax-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
     .tax-item { background: rgba(255,255,255,.05); border-radius: 12px; padding: 16px; text-align: center; }
-    .tax-label { font-size: .78rem; color: rgba(255,255,255,.5); margin-bottom: 6px; }
-    .tax-value { font-family: 'Paperlogy', sans-serif; font-size: 1.1rem; font-weight: 700; color: var(--sky); }
+    .tax-label { font-size: .78rem; font-weight: 500; color: rgba(255,255,255,.5); margin-bottom: 6px; }
+    .tax-value { font-size: 1.1rem; font-weight: 700; color: var(--sky); }
     .tax-note { font-size: .75rem; color: rgba(255,255,255,.4); margin-top: 4px; }
 
     .contact-box { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
-    .contact-info { font-size: .92rem; color: rgba(255,255,255,.75); line-height: 1.8; }
+    .contact-info { font-size: .92rem; font-weight: 500; color: rgba(255,255,255,.75); line-height: 1.8; }
     .call-btn {
       display: inline-flex; align-items: center; gap: 10px;
       padding: 14px 28px; background: transparent;
       border: 2px solid var(--sky); border-radius: 100px; color: var(--sky);
-      font-family: 'Paperlogy', sans-serif; font-size: 1rem; font-weight: 700;
+      font-size: 1rem; font-weight: 700;
       cursor: pointer; text-decoration: none; letter-spacing: .02em; white-space: nowrap;
       transition: background .25s, color .25s, transform .2s;
     }
@@ -202,7 +230,7 @@
     .toast {
       position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(80px);
       background: var(--sky); color: var(--navy);
-      font-family: 'Paperlogy', sans-serif; font-weight: 700; font-size: .88rem;
+      font-weight: 700; font-size: .88rem;
       padding: 12px 28px; border-radius: 100px;
       opacity: 0; transition: opacity .3s, transform .3s;
       pointer-events: none; z-index: 999;
